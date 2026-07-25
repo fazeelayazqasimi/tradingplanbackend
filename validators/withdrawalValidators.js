@@ -11,15 +11,20 @@ const requestWithdrawalValidator = [
       return true;
     }),
   body('paymentMethod')
+    .optional({ values: 'falsy' })
     .trim()
+    .isIn(['bank_transfer', 'paypal', 'crypto', 'usdt_bep20', 'mobile_money', 'other'])
+    .withMessage('Invalid payment method'),
+  body('walletAddress')
+    .if((value, { req }) => !req.body.paymentMethod || req.body.paymentMethod === 'crypto' || req.body.paymentMethod === 'usdt_bep20')
     .notEmpty()
-    .withMessage('Payment method is required'),
+    .withMessage('Wallet address is required for crypto withdrawals'),
   body('accountNumber')
-    .trim()
+    .if((value, { req }) => req.body.paymentMethod && !['crypto', 'usdt_bep20'].includes(req.body.paymentMethod))
     .notEmpty()
     .withMessage('Account number is required'),
   body('accountName')
-    .trim()
+    .if((value, { req }) => req.body.paymentMethod && !['crypto', 'usdt_bep20'].includes(req.body.paymentMethod))
     .notEmpty()
     .withMessage('Account name is required'),
 ];

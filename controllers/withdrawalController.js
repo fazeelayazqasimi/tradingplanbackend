@@ -9,11 +9,20 @@ const User = require('../models/User');
 
 exports.requestWithdrawal = async (req, res, next) => {
   try {
-    const { amount, walletAddress } = req.body;
+    const { amount, paymentMethod, walletAddress, accountNumber, accountName, bankName, cryptocurrency, walletType } = req.body;
     if (!amount || amount <= 0) return sendError(res, 'Valid amount is required', 400);
-    if (!walletAddress || !walletAddress.trim()) return sendError(res, 'USDT BEP20 wallet address is required', 400);
 
-    const wallet = await Wallet.findOne({ userId: req.user._id });
+    const method = (paymentMethod || 'usdt_bep20').trim();
+    const isCrypto = method === 'crypto' || method === 'usdt_bep20';
+
+    if (isCrypto) {
+      if (!walletAddress || !walletAddress.trim()) return sendError(res, 'Wallet address is required', 400);
+    } else {
+      if (!accountNumber || !accountName) return sendError(res, 'Account number and name are required', 400);
+    }
+
+    const walletTypeFilter = ['main', 'funding', 'ib'].includes(walletType) ? walletType : 'main';
+    const wallet = await Wallet.findOne({ userId: req.user._id, type: walletTypeFilter });
     if (!wallet || wallet.availableBalance < amount) return sendError(res, 'Insufficient balance', 400);
 
     wallet.availableBalance -= amount;
@@ -27,17 +36,21 @@ exports.requestWithdrawal = async (req, res, next) => {
       category: 'withdrawal',
       amount,
       balanceAfter: wallet.availableBalance,
-      description: 'Withdrawal request - USDT BEP20',
+      description: `Withdrawal request - ${method.toUpperCase()}`,
       status: 'pending',
     });
+
+    const paymentDetails = isCrypto
+      ? { walletAddress: walletAddress.trim(), cryptocurrency: cryptocurrency || 'USDT' }
+      : { accountNumber, accountName, bankName: bankName || '' };
 
     const withdrawal = await Withdrawal.create({
       userId: req.user._id,
       amount,
-      paymentMethod: 'usdt_bep20',
-      cryptocurrency: 'USDT',
-      network: 'BEP20',
-      paymentDetails: { walletAddress: walletAddress.trim() },
+      paymentMethod: method,
+      cryptocurrency: isCrypto ? (cryptocurrency || 'USDT') : undefined,
+      network: isCrypto ? 'BEP20' : undefined,
+      paymentDetails,
       status: 'pending',
     });
 

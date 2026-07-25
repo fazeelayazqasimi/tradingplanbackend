@@ -89,6 +89,15 @@ exports.getMyDeposits = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+exports.getDepositById = async (req, res, next) => {
+  try {
+    const deposit = await Deposit.findById(req.params.id).populate('accountId', 'bankName accountHolderName accountNumber paymentType');
+    if (!deposit) return sendError(res, 'Deposit not found', 404);
+    if (req.user.role !== 'admin' && deposit.userId.toString() !== req.user._id.toString()) return sendError(res, 'Not authorized', 403);
+    sendSuccess(res, deposit);
+  } catch (error) { next(error); }
+};
+
 exports.getAllDeposits = async (req, res, next) => {
   try {
     const { page, limit } = getPaginationOptions(req.query);
