@@ -149,7 +149,6 @@ exports.login = async (req, res, next) => {
     if (!isMatch) return sendError(res, 'Invalid credentials', 401);
 
     if (!user.isActive) return sendError(res, 'Account has been deactivated', 403);
-    if (!user.isEmailVerified) return sendError(res, 'Please verify your email before logging in', 403);
 
     user.lastLogin = new Date();
     await user.save({ validateBeforeSave: false });
