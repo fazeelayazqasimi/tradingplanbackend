@@ -9,21 +9,15 @@ const User = require('../models/User');
 
 exports.requestWithdrawal = async (req, res, next) => {
   try {
-    const { amount, paymentMethod, walletAddress, accountNumber, accountName, bankName, cryptocurrency, walletType } = req.body;
+    const { amount, paymentMethod, walletAddress, cryptocurrency } = req.body;
     if (!amount || amount <= 0) return sendError(res, 'Valid amount is required', 400);
 
     const method = (paymentMethod || 'usdt_bep20').trim();
-    const isCrypto = method === 'crypto' || method === 'usdt_bep20';
+    if (method !== 'usdt_bep20') return sendError(res, 'Only USDT BEP20 withdrawals are supported', 400);
+    if (!walletAddress || !walletAddress.trim()) return sendError(res, 'Wallet address is required', 400);
 
-    if (isCrypto) {
-      if (!walletAddress || !walletAddress.trim()) return sendError(res, 'Wallet address is required', 400);
-    } else {
-      if (!accountNumber || !accountName) return sendError(res, 'Account number and name are required', 400);
-    }
-
-    const walletTypeFilter = ['main', 'funding', 'ib'].includes(walletType) ? walletType : 'main';
-    const wallet = await Wallet.findOne({ userId: req.user._id, type: walletTypeFilter });
-    if (!wallet || wallet.availableBalance < amount) return sendError(res, 'Insufficient balance', 400);
+    const wallet = await Wallet.findOne({ userId: req.user._id, type: 'main' });
+    if (!wallet || wallet.availableBalance < amount) return sendError(res, 'Insufficient balance in main wallet', 400);
 
     wallet.availableBalance -= amount;
     wallet.pendingBalance += amount;
@@ -36,25 +30,55 @@ exports.requestWithdrawal = async (req, res, next) => {
       category: 'withdrawal',
       amount,
       balanceAfter: wallet.availableBalance,
-      description: `Withdrawal request - ${method.toUpperCase()}`,
+      description: `USDT BEP20 withdrawal request`,
       status: 'pending',
     });
 
-    const paymentDetails = isCrypto
-      ? { walletAddress: walletAddress.trim(), cryptocurrency: cryptocurrency || 'USDT' }
-      : { accountNumber, accountName, bankName: bankName || '' };
+    const paymentDetails = { walletAddress: walletAddress.trim(), cryptocurrency: cryptocurrency || 'USDT' };
 
     const withdrawal = await Withdrawal.create({
       userId: req.user._id,
       amount,
       paymentMethod: method,
-      cryptocurrency: isCrypto ? (cryptocurrency || 'USDT') : undefined,
-      network: isCrypto ? 'BEP20' : undefined,
+      cryptocurrency: 'USDT',
+      network: 'BEP20',
       paymentDetails,
       status: 'pending',
     });
 
-    sendSuccess(res, withdrawal, 'Withdrawal request submitted. Admin will process shortly.', 201);
+    // Auto-approve and initiate payout via CoinPayment API
+    try {
+      const payout = await createWithdrawal({
+        amount,
+        coinType: 'USDT_BEP20',
+        address: walletAddress.trim(),
+        userId: req.user._id,
+        paymentRef: withdrawal._id.toString(),
+        autoConfirm: true,
+      });
+
+      withdrawal.status = 'processing';
+      withdrawal.coinPaymentsTxnId = payout.txnId;
+      withdrawal.processedAt = new Date();
+      await withdrawal.save();
+
+      wallet.pendingBalance -= amount;
+      wallet.totalWithdrawn = (wallet.totalWithdrawn || 0) + amount;
+      wallet.lastWithdrawalAt = new Date();
+      await wallet.save();
+
+      sendSuccess(res, withdrawal, `Withdrawal successful! USDT BEP20 payout initiated. Txn ID: ${payout.txnId}`, 201);
+    } catch (payoutError) {
+      console.error('[CoinPayments] Auto-payout failed:', payoutError.message);
+      withdrawal.status = 'approved';
+      withdrawal.payoutError = payoutError.message;
+      await withdrawal.save();
+
+      wallet.pendingBalance -= amount;
+      await wallet.save();
+
+      sendSuccess(res, withdrawal, `Withdrawal approved. Payout may be processed manually.`, 201);
+    }
   } catch (error) { next(error); }
 };
 

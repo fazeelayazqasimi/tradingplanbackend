@@ -70,6 +70,7 @@ const seed = async () => {
       { key: 'social_youtube', value: '#', category: 'general', description: 'YouTube URL' },
       { key: 'social_telegram', value: '#', category: 'general', description: 'Telegram URL' },
       { key: 'institute_logo', value: '', category: 'general', description: 'Institute logo URL' },
+      { key: 'referral_signup_bonus', value: 10, category: 'referral', description: 'Referral signup bonus given to referrer when their referral registers' },
       { key: 'referral_level_1_commission', value: 30, category: 'referral', description: 'Level 1 direct referral commission in USD' },
       { key: 'referral_level_2_commission', value: 10, category: 'referral', description: 'Level 2 indirect referral commission in USD' },
       { key: 'referral_level_3_commission', value: 5, category: 'referral', description: 'Level 3 referral commission in USD' },

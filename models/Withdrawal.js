@@ -86,7 +86,7 @@ const withdrawalSchema = new mongoose.Schema({
   paymentMethod: {
     type: String,
     enum: {
-      values: ['bank_transfer', 'paypal', 'crypto', 'mobile_money', 'other'],
+      values: ['bank_transfer', 'paypal', 'crypto', 'mobile_money', 'other', 'usdt_bep20'],
       message: '{VALUE} is not a valid payment method'
     },
     required: [true, 'Payment method is required']

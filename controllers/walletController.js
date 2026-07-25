@@ -118,7 +118,7 @@ exports.creditWallet = async (req, res, next) => {
     const { userId } = req.params;
     const { amount, category, description, type } = req.body;
     if (!amount || amount <= 0) return sendError(res, 'Invalid amount', 400);
-    const walletType = type || 'main';
+    const walletType = type || 'funding';
     let wallet = await Wallet.findOne({ userId, type: walletType });
     if (!wallet) {
       wallet = await Wallet.findOneAndUpdate(

@@ -82,14 +82,14 @@ exports.register = async (req, res, next) => {
       );
     }
 
-    // Free registration bonus ($1) if enabled - goes to funding wallet
+    // Free registration bonus ($1) if enabled - goes to direct upline only
     try {
       const bonusEnabled = await Setting.getByKey('free_registration_bonus_enabled', false);
-      if (bonusEnabled) {
-        await creditWallet(user._id, {
+      if (bonusEnabled && referredBy) {
+        await creditWallet(referredBy, {
           amount: 1,
           category: 'bonus',
-          description: 'Free registration bonus',
+          description: `Free registration bonus for referring ${userFirstName} ${userLastName}`,
           referenceModel: 'User',
           referenceId: user._id,
           walletType: 'funding',
@@ -111,14 +111,16 @@ exports.register = async (req, res, next) => {
       if (referrer) {
         sendReferralSignupEmail(referrer, user).catch((e) => console.error('[EMAIL] sendReferralSignupEmail:', e.message));
         try {
-          const signupBonus = 10;
-          await creditWallet(referredBy, {
-            amount: signupBonus,
-            category: 'bonus',
-            description: `Referral signup bonus for referring ${userFirstName} ${userLastName || ''}`,
-            referenceModel: 'User',
-            referenceId: user._id,
-          });
+          const signupBonus = await Setting.getByKey('referral_signup_bonus', 10);
+          if (signupBonus > 0) {
+            await creditWallet(referredBy, {
+              amount: signupBonus,
+              category: 'bonus',
+              description: `Referral signup bonus for referring ${userFirstName} ${userLastName || ''}`,
+              referenceModel: 'User',
+              referenceId: user._id,
+            });
+          }
         } catch (e) {
           console.error('[REFERRAL] signup bonus error:', e.message);
         }

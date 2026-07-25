@@ -52,7 +52,47 @@ async function buildTree(userId, currentLevel = 1, maxDepth = 10) {
 exports.getReferralTree = async (req, res, next) => {
   try {
     const tree = await buildTree(req.user._id);
-    sendSuccess(res, tree);
+
+    const allRefs = await Referral.find({ referrerId: req.user._id })
+      .populate('referredUserId', 'firstName lastName email createdAt')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const direct = allRefs.filter(r => (r.level || 1) === 1).map(r => ({
+      _id: r._id,
+      user: r.referredUserId,
+      level: r.level || 1,
+      status: r.status,
+      commission: r.commissionAmount,
+      conversionType: r.conversionType,
+      conversionAmount: r.conversionAmount,
+      createdAt: r.createdAt,
+    }));
+
+    const indirect = allRefs.filter(r => (r.level || 1) > 1).map(r => ({
+      _id: r._id,
+      user: r.referredUserId,
+      level: r.level || 2,
+      status: r.status,
+      commission: r.commissionAmount,
+      conversionType: r.conversionType,
+      conversionAmount: r.conversionAmount,
+      createdAt: r.createdAt,
+    }));
+
+    const totalCommission = allRefs.reduce((sum, r) => sum + (r.commissionAmount || 0), 0);
+
+    sendSuccess(res, {
+      tree,
+      direct,
+      indirect,
+      stats: {
+        totalDirect: direct.length,
+        totalIndirect: indirect.length,
+        totalReferrals: direct.length + indirect.length,
+        totalCommission: Math.round(totalCommission * 100) / 100,
+      },
+    });
   } catch (error) { next(error); }
 };
 

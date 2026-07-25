@@ -7,11 +7,10 @@ const { SUPPORTED_COINS } = require('../services/coinPaymentService');
 
 exports.createDeposit = async (req, res, next) => {
   try {
-    const { amount, walletType: reqWalletType } = req.body;
+    const { amount } = req.body;
     if (!amount || amount <= 0) return sendError(res, 'Valid amount is required', 400);
-    const walletType = ['main', 'funding', 'ib'].includes(reqWalletType) ? reqWalletType : 'funding';
+    const walletType = 'main';
 
-    // Only USDT BEP20 is supported — auto-approve instantly
     const deposit = await Deposit.create({
       userId: req.user._id,
       amount,
@@ -36,7 +35,7 @@ exports.createDeposit = async (req, res, next) => {
       category: 'deposit',
       amount,
       balanceAfter: wallet.availableBalance,
-      description: `USDT BEP20 deposit auto-approved - $${amount} (${walletType} wallet)`,
+      description: `USDT BEP20 deposit auto-approved - $${amount}`,
       referenceId: deposit._id,
       referenceModel: 'Deposit',
       status: 'completed',

@@ -38,7 +38,7 @@ const subscriptionSchema = new mongoose.Schema({
   paymentMethod: {
     type: String,
     enum: {
-      values: ['stripe', 'paypal', 'bank_transfer', 'crypto', 'other'],
+      values: ['stripe', 'paypal', 'bank_transfer', 'crypto', 'other', 'wallet', 'pin', 'upline'],
       message: '{VALUE} is not a valid payment method'
     },
     required: [true, 'Payment method is required']
