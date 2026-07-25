@@ -3,10 +3,10 @@ const Setting = require('../models/Setting');
 
 const getBrandName = async () => {
   try {
-    const name = await Setting.getByKey('institute_name', 'Trading Institute');
+    const name = await Setting.getByKey('institute_name', 'The 4x Hub');
     return name;
   } catch {
-    return 'Trading Institute';
+    return 'The 4x Hub';
   }
 };
 
@@ -33,7 +33,11 @@ const logEmail = (level, msg, data) => {
   else console.log(`${prefix} ${msg}`, data || '');
 };
 
+<<<<<<< HEAD
 const buildTemplate = (title, bodyContent, instituteName = 'Trading Institute') => {
+=======
+const buildTemplate = (title, bodyContent, instituteName = 'The 4x Hub') => {
+>>>>>>> d247292 (Change default institute name to The 4x Hub)
   return `
     <!DOCTYPE html>
     <html lang="en">
@@ -77,7 +81,11 @@ const sendEmail = async ({ to, subject, html, fromName }) => {
   try {
     let name = fromName;
     if (!name) {
+<<<<<<< HEAD
       try { name = await Setting.getByKey('institute_name', 'Trading Institute'); } catch { name = 'Trading Institute'; }
+=======
+      try { name = await Setting.getByKey('institute_name', 'The 4x Hub'); } catch { name = 'The 4x Hub'; }
+>>>>>>> d247292 (Change default institute name to The 4x Hub)
     }
     const transporter = createTransporter();
     logEmail('info', `Sending to ${to}: "${subject}" via ${configStr}`);
