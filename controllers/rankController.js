@@ -1,0 +1,118 @@
+const Rank = require('../models/Rank');
+const UserRank = require('../models/UserRank');
+const User = require('../models/User');
+const { sendSuccess, sendError } = require('../helpers/response');
+
+exports.getRanks = async (req, res, next) => {
+  try {
+    let ranks = await Rank.find({ isActive: true }).sort({ order: 1 });
+    if (ranks.length === 0) {
+      const defaultRanks = [
+        { name: 'V1', order: 1, minReferrals: 0, minRevenue: 0, commissionPercent: 5, perks: ['Basic commission 5%'], isActive: true },
+        { name: 'V2', order: 2, minReferrals: 3, minRevenue: 500, commissionPercent: 8, perks: ['8% commission', 'Team building bonus'], isActive: true },
+        { name: 'V3', order: 3, minReferrals: 8, minRevenue: 2000, commissionPercent: 12, perks: ['12% commission', 'Monthly performance bonus'], isActive: true },
+        { name: 'V4', order: 4, minReferrals: 20, minRevenue: 5000, commissionPercent: 15, perks: ['15% commission', 'Exclusive webinars'], isActive: true },
+        { name: 'V5', order: 5, minReferrals: 50, minRevenue: 15000, commissionPercent: 18, perks: ['18% commission', 'Leadership retreat'], isActive: true },
+        { name: 'V6', order: 6, minReferrals: 100, minRevenue: 50000, commissionPercent: 22, perks: ['22% commission', 'Revenue share', 'Founder status'], isActive: true },
+      ];
+      ranks = await Rank.insertMany(defaultRanks);
+      console.log('[RANKS] Auto-seeded 6 default ranks');
+    }
+    sendSuccess(res, ranks);
+  } catch (error) { next(error); }
+};
+
+exports.getMyRank = async (req, res, next) => {
+  try {
+    let userRank = await UserRank.findOne({ userId: req.user._id }).populate('currentRankId');
+    if (!userRank) {
+      const defaultRank = await Rank.findOne({ isActive: true }).sort({ order: 1 });
+      if (!defaultRank) return sendError(res, 'No ranks configured', 404);
+      userRank = await UserRank.create({ userId: req.user._id, currentRankId: defaultRank._id });
+    }
+    const allRanks = await Rank.find({ isActive: true }).sort({ order: 1 });
+    const currentOrder = userRank.currentRankId?.order || 0;
+    const nextRank = allRanks.find(r => r.order > currentOrder);
+
+    const Referral = require('../models/Referral');
+    const directCount = await Referral.countDocuments({ referrerId: req.user._id, level: 1 });
+    const totalTeam = await Referral.countDocuments({ referrerId: req.user._id });
+
+    sendSuccess(res, { userRank, nextRank, allRanks, directCount, totalTeam });
+  } catch (error) { next(error); }
+};
+
+exports.getRankDistribution = async (req, res, next) => {
+  try {
+    const distribution = await UserRank.aggregate([
+      { $lookup: { from: 'ranks', localField: 'currentRankId', foreignField: '_id', as: 'rank' } },
+      { $unwind: { path: '$rank', preserveNullAndEmptyArrays: true } },
+      { $group: { _id: '$rank.name', count: { $sum: 1 } } },
+      { $sort: { _id: 1 } },
+    ]);
+    sendSuccess(res, distribution);
+  } catch (error) { next(error); }
+};
+
+exports.adminOverrideRank = async (req, res, next) => {
+  try {
+    const { userId, rankId, reason } = req.body;
+    const userRank = await UserRank.findOne({ userId });
+    if (!userRank) return sendError(res, 'User rank not found', 404);
+    const oldRank = userRank.currentRankId;
+    userRank.currentRankId = rankId;
+    userRank.rankHistory.push({ rankId, achievedAt: new Date(), reason, changedBy: req.user._id, changeType: 'manual' });
+    await userRank.save();
+    sendSuccess(res, userRank, 'Rank overridden');
+  } catch (error) { next(error); }
+};
+
+exports.lockRank = async (req, res, next) => {
+  try {
+    const userRank = await UserRank.findOne({ userId: req.params.userId });
+    if (!userRank) return sendError(res, 'Not found', 404);
+    userRank.isLocked = true;
+    userRank.lockedBy = req.user._id;
+    userRank.lockedAt = new Date();
+    userRank.lockReason = req.body.reason || 'Admin lock';
+    await userRank.save();
+    sendSuccess(res, userRank, 'Rank locked');
+  } catch (error) { next(error); }
+};
+
+exports.unlockRank = async (req, res, next) => {
+  try {
+    const userRank = await UserRank.findOne({ userId: req.params.userId });
+    if (!userRank) return sendError(res, 'Not found', 404);
+    userRank.isLocked = false;
+    userRank.lockedBy = undefined;
+    userRank.lockedAt = undefined;
+    userRank.lockReason = undefined;
+    await userRank.save();
+    sendSuccess(res, userRank, 'Rank unlocked');
+  } catch (error) { next(error); }
+};
+
+exports.updateRank = async (req, res, next) => {
+  try {
+    const rank = await Rank.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    if (!rank) return sendError(res, 'Rank not found', 404);
+    sendSuccess(res, rank, 'Rank updated');
+  } catch (error) { next(error); }
+};
+
+exports.createRank = async (req, res, next) => {
+  try {
+    const rank = await Rank.create(req.body);
+    sendSuccess(res, rank, 'Rank created', 201);
+  } catch (error) { next(error); }
+};
+
+exports.deleteRank = async (req, res, next) => {
+  try {
+    const rank = await Rank.findByIdAndDelete(req.params.id);
+    if (!rank) return sendError(res, 'Rank not found', 404);
+    await UserRank.deleteMany({ currentRankId: req.params.id });
+    sendSuccess(res, null, 'Rank deleted');
+  } catch (error) { next(error); }
+};
