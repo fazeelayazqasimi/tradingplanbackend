@@ -101,7 +101,7 @@ const handleDepositIPN = async (ipnData) => {
 
         await User.findByIdAndUpdate(deposit.userId, { isApproved: true, subscriptionStatus: 'active' });
 
-        // Assign V1 rank if not exists
+        // Assign D1 rank if not exists
         try {
           const existingRank = await UserRank.findOne({ userId: deposit.userId });
           if (!existingRank) {

@@ -12,12 +12,12 @@ const migrate = async () => {
     console.log('MongoDB connected...\n');
 
     const rankConfig = [
-      { order: 1, name: 'V1', slug: 'v1', activationGain: 30, quantification: 4, indirectIncome: 0 },
-      { order: 2, name: 'V2', slug: 'v2', activationGain: 40, quantification: 6, indirectIncome: 10 },
-      { order: 3, name: 'V3', slug: 'v3', activationGain: 50, quantification: 8, indirectIncome: 20 },
-      { order: 4, name: 'V4', slug: 'v4', activationGain: 60, quantification: 10, indirectIncome: 30 },
-      { order: 5, name: 'V5', slug: 'v5', activationGain: 65, quantification: 11, indirectIncome: 35 },
-      { order: 6, name: 'V6', slug: 'v6', activationGain: 70, quantification: 12, indirectIncome: 40 },
+      { order: 1, name: 'D1', slug: 'd1', activationGain: 30, quantification: 4, indirectIncome: 0 },
+      { order: 2, name: 'D2', slug: 'd2', activationGain: 40, quantification: 6, indirectIncome: 10 },
+      { order: 3, name: 'D3', slug: 'd3', activationGain: 50, quantification: 8, indirectIncome: 20 },
+      { order: 4, name: 'D4', slug: 'd4', activationGain: 60, quantification: 10, indirectIncome: 30 },
+      { order: 5, name: 'D5', slug: 'd5', activationGain: 65, quantification: 11, indirectIncome: 35 },
+      { order: 6, name: 'D6', slug: 'd6', activationGain: 70, quantification: 12, indirectIncome: 40 },
     ];
 
     const oldSlugs = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6'];

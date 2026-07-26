@@ -184,7 +184,7 @@ const activateUserAndCreateSubscription = async (userId, amount, paymentMethod, 
   });
   await User.findByIdAndUpdate(userId, { isApproved: true, subscriptionStatus: 'active', subscriptionExpiry: sub.endDate });
 
-  // Assign V1 rank if not exists
+  // Assign D1 rank if not exists
   try {
     const existingRank = await UserRank.findOne({ userId });
     if (!existingRank) {

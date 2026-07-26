@@ -30,12 +30,12 @@ const REFERRAL_LEVELS = {
 const MAX_REFERRAL_LEVELS = 10;
 
 const RANK_SLUGS = {
-  V1: 'v1',
-  V2: 'v2',
-  V3: 'v3',
-  V4: 'v4',
-  V5: 'v5',
-  V6: 'v6'
+  D1: 'd1',
+  D2: 'd2',
+  D3: 'd3',
+  D4: 'd4',
+  D5: 'd5',
+  D6: 'd6'
 };
 
 const WALLET_CATEGORIES = {

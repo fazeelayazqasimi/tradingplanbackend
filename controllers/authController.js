@@ -83,7 +83,7 @@ exports.register = async (req, res, next) => {
       );
     }
 
-    // Assign V1 rank to new user
+    // Assign D1 rank to new user
     try {
       const lowestRank = await Rank.findOne({ isActive: true }).sort({ order: 1 });
       if (lowestRank) {

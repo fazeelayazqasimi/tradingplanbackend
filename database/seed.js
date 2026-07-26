@@ -38,41 +38,41 @@ const seed = async () => {
     });
     console.log('Admin created:', admin.email);
 
-    // Create ranks V1-V6
+    // Create ranks D1-D6
     const ranks = await Rank.insertMany([
       {
-        name: 'V1', slug: 'v1',
+        name: 'D1', slug: 'd1',
         minDirectReferrals: 0, minTeamSize: 0, minAtLeast: 0, minAtLeastRank: null,
         activationGain: 30, quantification: 4, indirectIncome: 0,
         minRevenue: 0, perks: ['Base member'], order: 1, isActive: true
       },
       {
-        name: 'V2', slug: 'v2',
-        minDirectReferrals: 2, minTeamSize: 5, minAtLeast: 1, minAtLeastRank: 'V1',
+        name: 'D2', slug: 'd2',
+        minDirectReferrals: 3, minTeamSize: 20, minAtLeast: 0, minAtLeastRank: null,
         activationGain: 40, quantification: 6, indirectIncome: 10,
         minRevenue: 300, perks: ['Direct Referral Bonus', 'Copy Trading Share'], order: 2, isActive: true
       },
       {
-        name: 'V3', slug: 'v3',
-        minDirectReferrals: 5, minTeamSize: 20, minAtLeast: 2, minAtLeastRank: 'V3',
+        name: 'D3', slug: 'd3',
+        minDirectReferrals: 5, minTeamSize: 100, minAtLeast: 3, minAtLeastRank: 'D2',
         activationGain: 50, quantification: 8, indirectIncome: 20,
         minRevenue: 1000, perks: ['Priority Support'], order: 3, isActive: true
       },
       {
-        name: 'V4', slug: 'v4',
-        minDirectReferrals: 10, minTeamSize: 50, minAtLeast: 3, minAtLeastRank: 'V4',
+        name: 'D4', slug: 'd4',
+        minDirectReferrals: 8, minTeamSize: 300, minAtLeast: 3, minAtLeastRank: 'D3',
         activationGain: 60, quantification: 10, indirectIncome: 30,
         minRevenue: 2500, perks: ['VIP Support', 'Exclusive Signals'], order: 4, isActive: true
       },
       {
-        name: 'V5', slug: 'v5',
-        minDirectReferrals: 20, minTeamSize: 100, minAtLeast: 5, minAtLeastRank: 'V5',
+        name: 'D5', slug: 'd5',
+        minDirectReferrals: 12, minTeamSize: 800, minAtLeast: 3, minAtLeastRank: 'D4',
         activationGain: 65, quantification: 11, indirectIncome: 35,
         minRevenue: 5000, perks: ['Personal Mentor', 'Custom Strategies'], order: 5, isActive: true
       },
       {
-        name: 'V6', slug: 'v6',
-        minDirectReferrals: 50, minTeamSize: 300, minAtLeast: 10, minAtLeastRank: 'V6',
+        name: 'D6', slug: 'd6',
+        minDirectReferrals: 20, minTeamSize: 1500, minAtLeast: 3, minAtLeastRank: 'D5',
         activationGain: 70, quantification: 12, indirectIncome: 40,
         minRevenue: 10000, perks: ['Elite Mentorship', 'Revenue Sharing'], order: 6, isActive: true
       },

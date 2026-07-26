@@ -8,12 +8,12 @@ exports.getRanks = async (req, res, next) => {
     let ranks = await Rank.find({ isActive: true }).sort({ order: 1 });
     if (ranks.length === 0) {
       const defaultRanks = [
-        { name: 'V1', order: 1, minReferrals: 0, minRevenue: 0, commissionPercent: 5, perks: ['Basic commission 5%'], isActive: true },
-        { name: 'V2', order: 2, minReferrals: 3, minRevenue: 500, commissionPercent: 8, perks: ['8% commission', 'Team building bonus'], isActive: true },
-        { name: 'V3', order: 3, minReferrals: 8, minRevenue: 2000, commissionPercent: 12, perks: ['12% commission', 'Monthly performance bonus'], isActive: true },
-        { name: 'V4', order: 4, minReferrals: 20, minRevenue: 5000, commissionPercent: 15, perks: ['15% commission', 'Exclusive webinars'], isActive: true },
-        { name: 'V5', order: 5, minReferrals: 50, minRevenue: 15000, commissionPercent: 18, perks: ['18% commission', 'Leadership retreat'], isActive: true },
-        { name: 'V6', order: 6, minReferrals: 100, minRevenue: 50000, commissionPercent: 22, perks: ['22% commission', 'Revenue share', 'Founder status'], isActive: true },
+        { name: 'D1', order: 1, minDirectReferrals: 0, minTeamSize: 0, minAtLeast: 0, minAtLeastRank: null, activationGain: 30, quantification: 4, indirectIncome: 0, minRevenue: 0, perks: ['Base member'], isActive: true },
+        { name: 'D2', order: 2, minDirectReferrals: 3, minTeamSize: 20, minAtLeast: 0, minAtLeastRank: null, activationGain: 40, quantification: 6, indirectIncome: 10, minRevenue: 300, perks: ['Direct Referral Bonus', 'Copy Trading Share'], isActive: true },
+        { name: 'D3', order: 3, minDirectReferrals: 5, minTeamSize: 100, minAtLeast: 3, minAtLeastRank: 'D2', activationGain: 50, quantification: 8, indirectIncome: 20, minRevenue: 1000, perks: ['Priority Support'], isActive: true },
+        { name: 'D4', order: 4, minDirectReferrals: 8, minTeamSize: 300, minAtLeast: 3, minAtLeastRank: 'D3', activationGain: 60, quantification: 10, indirectIncome: 30, minRevenue: 2500, perks: ['VIP Support', 'Exclusive Signals'], isActive: true },
+        { name: 'D5', order: 5, minDirectReferrals: 12, minTeamSize: 800, minAtLeast: 3, minAtLeastRank: 'D4', activationGain: 65, quantification: 11, indirectIncome: 35, minRevenue: 5000, perks: ['Personal Mentor', 'Custom Strategies'], isActive: true },
+        { name: 'D6', order: 6, minDirectReferrals: 20, minTeamSize: 1500, minAtLeast: 3, minAtLeastRank: 'D5', activationGain: 70, quantification: 12, indirectIncome: 40, minRevenue: 10000, perks: ['Elite Mentorship', 'Revenue Sharing'], isActive: true },
       ];
       ranks = await Rank.insertMany(defaultRanks);
       console.log('[RANKS] Auto-seeded 6 default ranks');
