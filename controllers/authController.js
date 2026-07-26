@@ -383,7 +383,10 @@ exports.sendOTP = async (req, res, next) => {
       { upsert: true, new: true }
     );
 
-    await sendOTPEmail(email, otp);
+    const result = await sendOTPEmail(email, otp);
+    if (!result.success) {
+      return sendError(res, `Failed to send OTP: ${result.error}`, 500);
+    }
     sendSuccess(res, null, 'OTP sent to email');
   } catch (error) {
     next(error);
