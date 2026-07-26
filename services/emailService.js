@@ -1,10 +1,14 @@
 const nodemailer = require('nodemailer');
-const sgMail = require('@sendgrid/mail');
-const Setting = require('../models/Setting');
-
-if (process.env.SENDGRID_API_KEY) {
-  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+let sgMail = null;
+try {
+  sgMail = require('@sendgrid/mail');
+  if (process.env.SENDGRID_API_KEY) {
+    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+  }
+} catch (e) {
+  console.error('[EMAIL] SendGrid not available, will use fallback:', e.message);
 }
+const Setting = require('../models/Setting');
 
 const getBrandName = async () => {
   try {
@@ -78,6 +82,7 @@ const buildTemplate = (title, bodyContent, instituteName = 'The 4x Hub') => {
 };
 
 const sendViaSendGrid = async ({ to, subject, html, fromName }) => {
+  if (!sgMail) throw new Error('SendGrid module not loaded');
   const name = fromName || await getBrandName();
   const fromEmail = process.env.SENDGRID_FROM_EMAIL || process.env.EMAIL_USER;
   const msg = {
@@ -114,7 +119,7 @@ const sendViaNodemailer = async ({ to, subject, html, fromName }) => {
 const sendEmail = async ({ to, subject, html, fromName }) => {
   const configStr = `to=${to} subject="${subject}"`;
 
-  if (process.env.SENDGRID_API_KEY) {
+  if (sgMail && process.env.SENDGRID_API_KEY) {
     try {
       logEmail('info', `Sending via SendGrid: ${configStr}`);
       const result = await sendViaSendGrid({ to, subject, html, fromName });
