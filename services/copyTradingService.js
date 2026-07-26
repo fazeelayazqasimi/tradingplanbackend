@@ -110,7 +110,7 @@ const calculateNetworkShare = async (userId, networkAmount) => {
       .lean();
 
     const profitSharePercent = referrerRankData && referrerRankData.currentRankId
-      ? referrerRankData.currentRankId.profitSharePercent || 0
+      ? referrerRankData.currentRankId.quantification || 0
       : 0;
 
     const shareRatio = profitSharePercent / 100;

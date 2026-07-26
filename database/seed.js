@@ -40,12 +40,42 @@ const seed = async () => {
 
     // Create ranks V1-V6
     const ranks = await Rank.insertMany([
-      { name: 'V1', slug: 'v1', minReferrals: 0, minRevenue: 0, commissionPercent: 5, bonusPerReferral: 0, profitSharePercent: 0, copyTradingSharePercent: 0, activationGain: 30, quantification: 5, indirectIncome: 5, perks: ['Base member'], order: 1 },
-      { name: 'V2', slug: 'v2', minReferrals: 3, minRevenue: 300, commissionPercent: 10, bonusPerReferral: 5, profitSharePercent: 5, copyTradingSharePercent: 2, activationGain: 40, quantification: 6, indirectIncome: 8, perks: ['5% profit share', '2% copy trading share'], order: 2 },
-      { name: 'V3', slug: 'v3', minReferrals: 10, minRevenue: 1000, commissionPercent: 15, bonusPerReferral: 10, profitSharePercent: 10, copyTradingSharePercent: 5, activationGain: 50, quantification: 7, indirectIncome: 10, perks: ['10% profit share', '5% copy trading share', 'Priority support'], order: 3 },
-      { name: 'V4', slug: 'v4', minReferrals: 25, minRevenue: 2500, commissionPercent: 20, bonusPerReferral: 15, profitSharePercent: 15, copyTradingSharePercent: 8, activationGain: 60, quantification: 8, indirectIncome: 12, perks: ['15% profit share', '8% copy trading share', 'VIP support', 'Exclusive signals'], order: 4 },
-      { name: 'V5', slug: 'v5', minReferrals: 50, minRevenue: 5000, commissionPercent: 25, bonusPerReferral: 20, profitSharePercent: 20, copyTradingSharePercent: 12, activationGain: 65, quantification: 9, indirectIncome: 15, perks: ['20% profit share', '12% copy trading share', 'Personal mentor', 'Custom strategies'], order: 5 },
-      { name: 'V6', slug: 'v6', minReferrals: 100, minRevenue: 10000, commissionPercent: 30, bonusPerReferral: 25, profitSharePercent: 25, copyTradingSharePercent: 15, activationGain: 70, quantification: 10, indirectIncome: 20, perks: ['25% profit share', '15% copy trading share', 'Elite mentorship', 'Revenue sharing'], order: 6 },
+      {
+        name: 'V1', slug: 'v1',
+        minDirectReferrals: 0, minTeamSize: 0, minAtLeast: 0, minAtLeastRank: null,
+        activationGain: 30, quantification: 4, indirectIncome: 0,
+        minRevenue: 0, perks: ['Base member'], order: 1, isActive: true
+      },
+      {
+        name: 'V2', slug: 'v2',
+        minDirectReferrals: 2, minTeamSize: 5, minAtLeast: 1, minAtLeastRank: 'V1',
+        activationGain: 40, quantification: 6, indirectIncome: 10,
+        minRevenue: 300, perks: ['Direct Referral Bonus', 'Copy Trading Share'], order: 2, isActive: true
+      },
+      {
+        name: 'V3', slug: 'v3',
+        minDirectReferrals: 5, minTeamSize: 20, minAtLeast: 2, minAtLeastRank: 'V3',
+        activationGain: 50, quantification: 8, indirectIncome: 20,
+        minRevenue: 1000, perks: ['Priority Support'], order: 3, isActive: true
+      },
+      {
+        name: 'V4', slug: 'v4',
+        minDirectReferrals: 10, minTeamSize: 50, minAtLeast: 3, minAtLeastRank: 'V4',
+        activationGain: 60, quantification: 10, indirectIncome: 30,
+        minRevenue: 2500, perks: ['VIP Support', 'Exclusive Signals'], order: 4, isActive: true
+      },
+      {
+        name: 'V5', slug: 'v5',
+        minDirectReferrals: 20, minTeamSize: 100, minAtLeast: 5, minAtLeastRank: 'V5',
+        activationGain: 65, quantification: 11, indirectIncome: 35,
+        minRevenue: 5000, perks: ['Personal Mentor', 'Custom Strategies'], order: 5, isActive: true
+      },
+      {
+        name: 'V6', slug: 'v6',
+        minDirectReferrals: 50, minTeamSize: 300, minAtLeast: 10, minAtLeastRank: 'V6',
+        activationGain: 70, quantification: 12, indirectIncome: 40,
+        minRevenue: 10000, perks: ['Elite Mentorship', 'Revenue Sharing'], order: 6, isActive: true
+      },
     ]);
     console.log('Ranks created:', ranks.length);
 
@@ -86,6 +116,10 @@ const seed = async () => {
       { key: 'broker_startrading_api_secret', value: '', category: 'api', description: 'StarTrading Broker API Secret' },
       { key: 'broker_startrading_api_endpoint', value: 'https://api.startrading.com', category: 'api', description: 'StarTrading Broker API Endpoint' },
       { key: 'free_registration_bonus_enabled', value: true, category: 'general', description: 'Enable $1 free registration bonus' },
+      { key: 'free_registration_bonus_amount', value: 1, category: 'general', description: 'Free registration bonus amount in USD' },
+      { key: 'plan_days_monthly', value: 30, category: 'subscription', description: 'Monthly plan duration in days' },
+      { key: 'plan_days_yearly', value: 365, category: 'subscription', description: 'Yearly plan duration in days' },
+      { key: 'plan_days_lifetime', value: 36500, category: 'subscription', description: 'Lifetime plan duration in days' },
     ];
     await Setting.insertMany(defaultSettings);
     console.log('Settings created:', defaultSettings.length);

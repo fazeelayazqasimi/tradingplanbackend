@@ -173,10 +173,10 @@ const sendPaymentReceivedEmail = async (user, amount) => {
 
 const sendAccountApprovedEmail = async (user) => {
   const name = await getBrandName();
-  const html = buildTemplate('Account Approved', `
-    <h2 style="margin:0 0 16px 0;color:#1f2937;font-size:20px;">Your Account Has Been Approved</h2>
+  const html = buildTemplate('Account Activated', `
+    <h2 style="margin:0 0 16px 0;color:#1f2937;font-size:20px;">Your Account Has Been Activated</h2>
     <p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.6;">
-      Hi ${user.firstName}, congratulations! Your account has been approved by our admin team.
+      Hi ${user.firstName}, congratulations! Your account has been activated.
     </p>
     <p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.6;">
       You can now access all features available to your account.
@@ -188,7 +188,7 @@ const sendAccountApprovedEmail = async (user) => {
 
   return sendEmail({
     to: user.email,
-    subject: `Account Approved - ${name}`,
+    subject: `Account Activated - ${name}`,
     html
   });
 };

@@ -6,7 +6,8 @@ const Rank = require('../models/Rank');
 const Setting = require('../models/Setting');
 const { creditWallet } = require('./walletService');
 const { sendCommissionReceivedEmail } = require('./emailService');
-const { REFERRAL_STATUSES, REFERRAL_LEVELS } = require('../utils/constants');
+const { REFERRAL_STATUSES } = require('../utils/constants');
+const { checkAndPromoteRank } = require('./rankService');
 
 const generateReferralCode = async (name) => {
   const cleanName = (name || '').replace(/[^a-zA-Z]/g, '').toUpperCase().substring(0, 6);
@@ -42,26 +43,15 @@ const getRankBasedCommission = async (referrerId, level, purchaseAmount) => {
 
   const rank = userRank.currentRankId;
   if (level === 1) {
-    const activation = rank.activationGain || 0;
-    const quantBonus = purchaseAmount * ((rank.quantification || 0) / 100);
-    if (activation === 0 && quantBonus === 0) {
-      const settingsFallback = await Setting.findOne({ key: `referral_level_${level}_commission` });
-      return (settingsFallback && Number(settingsFallback.value)) || 0;
-    }
-    return activation + quantBonus;
+    return rank.activationGain || 0;
   }
 
-  const indirect = rank.indirectIncome || 0;
-  if (indirect === 0) {
-    const settingsFallback = await Setting.findOne({ key: `referral_level_${level}_commission` });
-    return (settingsFallback && Number(settingsFallback.value)) || 0;
-  }
-  return indirect;
+  return rank.indirectIncome || 0;
 };
 
 const getMaxReferralLevels = async () => {
   const setting = await Setting.findOne({ key: 'referral_max_levels' });
-  return (setting && Number(setting.value)) || 5;
+  return (setting && Number(setting.value)) || 0;
 };
 
 const processReferralCommission = async (referredUserId, purchaseAmount, conversionType = 'course') => {
@@ -155,6 +145,10 @@ const processReferralCommission = async (referredUserId, purchaseAmount, convers
     try {
       await sendCommissionReceivedEmail(referrer, commissionAmount);
     } catch (e) { console.error('[EMAIL] sendCommissionReceivedEmail:', e.message); }
+
+    try {
+      await checkAndPromoteRank(currentUserId);
+    } catch (e) { console.error('[RANK] checkAndPromoteRank:', e.message); }
 
     currentUserId = referrer.referredBy;
     chainLevel++;

@@ -1,47 +1,44 @@
 const Deposit = require('../models/Deposit');
 const Wallet = require('../models/Wallet');
 const WalletTransaction = require('../models/WalletTransaction');
+const User = require('../models/User');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions } = require('../helpers/pagination');
-const { SUPPORTED_COINS } = require('../services/coinPaymentService');
+const { createCoinPayment, SUPPORTED_COINS } = require('../services/coinPaymentService');
 
 exports.createDeposit = async (req, res, next) => {
   try {
-    const { amount } = req.body;
+    const { amount, coinType } = req.body;
     if (!amount || amount <= 0) return sendError(res, 'Valid amount is required', 400);
-    const walletType = 'main';
+    const coin = coinType || 'USDT_BEP20';
+    if (!SUPPORTED_COINS[coin]) return sendError(res, 'Unsupported coin type', 400);
+
+    const user = await User.findById(req.user._id).lean();
+    const coinPayment = await createCoinPayment({
+      userId: req.user._id,
+      amount,
+      coinType: coin,
+      userName: `${user.firstName} ${user.lastName}`.trim() || 'User',
+      userEmail: user.email,
+    });
 
     const deposit = await Deposit.create({
       userId: req.user._id,
       amount,
-      paymentMethod: 'usdt_bep20',
-      coinType: 'USDT_BEP20',
-      walletType,
-      status: 'approved',
-      processedBy: req.user._id,
-      processedAt: new Date(),
+      paymentMethod: coin.toLowerCase(),
+      coinType: coin,
+      status: 'pending',
+      coinPaymentRef: coinPayment.payment.paymentRef,
+      coinPaymentsTxnId: coinPayment.payment.txnId,
+      depositAddress: coinPayment.payment.depositAddress,
+      qrCodeData: coinPayment.payment.qrCodeData,
+      expiresAt: coinPayment.payment.expiresAt,
     });
 
-    const wallet = await Wallet.findOneAndUpdate(
-      { userId: req.user._id, type: walletType },
-      { $inc: { availableBalance: amount, totalEarned: amount }, $set: { lastCreditAt: new Date() } },
-      { upsert: true, new: true }
-    );
-
-    await WalletTransaction.create({
-      walletId: wallet._id,
-      userId: req.user._id,
-      type: 'credit',
-      category: 'deposit',
-      amount,
-      balanceAfter: wallet.availableBalance,
-      description: `USDT BEP20 deposit auto-approved - $${amount}`,
-      referenceId: deposit._id,
-      referenceModel: 'Deposit',
-      status: 'completed',
-    });
-
-    sendSuccess(res, { deposit, wallet }, 'Deposit successful! Wallet credited instantly.', 201);
+    sendSuccess(res, {
+      deposit,
+      payment: coinPayment.payment,
+    }, 'Deposit initiated. Send funds to the provided address.', 201);
   } catch (error) { next(error); }
 };
 

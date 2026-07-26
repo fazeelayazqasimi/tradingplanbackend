@@ -56,10 +56,10 @@ const checkAndPromoteRank = async (userId) => {
     let meets = true;
 
     if (rank.minDirectReferrals > 0 && directReferrals < rank.minDirectReferrals) meets = false;
-    if (rank.minTeamMembers > 0 && totalTeam < rank.minTeamMembers) meets = false;
+    if (rank.minTeamSize > 0 && totalTeam < rank.minTeamSize) meets = false;
 
-    if (rank.minRequiredRank && rank.minRequiredRankCount > 0) {
-      const requiredRank = allRanks.find(r => r.name === rank.minRequiredRank);
+    if (rank.minAtLeastRank && rank.minAtLeast > 0) {
+      const requiredRank = allRanks.find(r => r.name === rank.minAtLeastRank);
       if (requiredRank) {
         const qualifiedRefs = await Referral.countDocuments({
           referrerId: userId,
@@ -71,7 +71,7 @@ const checkAndPromoteRank = async (userId) => {
           currentRankId: { $ne: null }
         });
         const qualifiedCount = Math.min(qualifiedRefs, usersWithRank);
-        if (qualifiedCount < rank.minRequiredRankCount) meets = false;
+        if (qualifiedCount < rank.minAtLeast) meets = false;
       }
     }
 

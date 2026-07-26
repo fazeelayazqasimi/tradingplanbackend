@@ -5,6 +5,7 @@ const UserRank = require('../models/UserRank');
 const Rank = require('../models/Rank');
 const Referral = require('../models/Referral');
 const Setting = require('../models/Setting');
+const { checkAndPromoteRank } = require('../services/rankService');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { sendSuccess, sendError } = require('../helpers/response');
@@ -82,12 +83,32 @@ exports.register = async (req, res, next) => {
       );
     }
 
-    // Free registration bonus ($1) if enabled - goes to direct upline only
+    // Assign V1 rank to new user
+    try {
+      const lowestRank = await Rank.findOne({ isActive: true }).sort({ order: 1 });
+      if (lowestRank) {
+        await UserRank.create({
+          userId: user._id,
+          currentRankId: lowestRank._id,
+          rankHistory: [{
+            rankId: lowestRank._id,
+            achievedAt: new Date(),
+            reason: `Assigned ${lowestRank.name} on registration`,
+            changeType: 'automatic'
+          }]
+        });
+      }
+    } catch (e) {
+      console.error('[REGISTER] UserRank creation error:', e.message);
+    }
+
+    // Free registration bonus if enabled
     try {
       const bonusEnabled = await Setting.getByKey('free_registration_bonus_enabled', false);
-      if (bonusEnabled && referredBy) {
+      const bonusAmount = await Setting.getByKey('free_registration_bonus_amount', 0);
+      if (bonusEnabled && bonusAmount > 0 && referredBy) {
         await creditWallet(referredBy, {
-          amount: 1,
+          amount: bonusAmount,
           category: 'bonus',
           description: `Free registration bonus for referring ${userFirstName} ${userLastName}`,
           referenceModel: 'User',
@@ -111,7 +132,7 @@ exports.register = async (req, res, next) => {
       if (referrer) {
         sendReferralSignupEmail(referrer, user).catch((e) => console.error('[EMAIL] sendReferralSignupEmail:', e.message));
         try {
-          const signupBonus = await Setting.getByKey('referral_signup_bonus', 10);
+          const signupBonus = await Setting.getByKey('referral_signup_bonus', 0);
           if (signupBonus > 0) {
             await creditWallet(referredBy, {
               amount: signupBonus,

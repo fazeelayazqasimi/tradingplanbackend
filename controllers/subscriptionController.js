@@ -1,5 +1,7 @@
 const Subscription = require('../models/Subscription');
 const User = require('../models/User');
+const UserRank = require('../models/UserRank');
+const Rank = require('../models/Rank');
 const Wallet = require('../models/Wallet');
 const Coupon = require('../models/Coupon');
 const Setting = require('../models/Setting');
@@ -9,7 +11,10 @@ const { sendAccountApprovedEmail } = require('../services/emailService');
 const { debitWallet, creditWallet } = require('../services/walletService');
 const { processReferralCommission } = require('../services/referralService');
 
-const PLAN_DAYS = { monthly: 30, yearly: 365, lifetime: 36500 };
+const getPlanDays = async (plan) => {
+  const setting = await Setting.findOne({ key: `plan_days_${plan}` });
+  return (setting && Number(setting.value)) || 365;
+};
 
 exports.getSubscriptions = async (req, res, next) => {
   try {
@@ -38,13 +43,6 @@ exports.createSubscription = async (req, res, next) => {
     const targetUserId = purchasedForUserId || req.user._id;
 
     if (paymentMethod === 'wallet') {
-      // Check main wallet balance
-      const mainWallet = await Wallet.findOne({ userId: req.user._id, type: 'main' });
-      if (!mainWallet || mainWallet.availableBalance < amount) {
-        return sendError(res, 'Insufficient main wallet balance. Please deposit first.', 400);
-      }
-
-      // Check funding wallet for potential usage
       const fundingWallet = await Wallet.findOne({ userId: req.user._id, type: 'funding' });
       const fundingPercent = await Setting.getByKey('funding_wallet_usage_percent', 20);
       const maxFundingUsage = (amount * fundingPercent) / 100;
@@ -65,8 +63,12 @@ exports.createSubscription = async (req, res, next) => {
         }
       }
 
-      // Remaining from main wallet
       const remaining = amount - fundingUsed;
+      const mainWallet = await Wallet.findOne({ userId: req.user._id, type: 'main' });
+      if (!mainWallet || mainWallet.availableBalance < remaining) {
+        return sendError(res, 'Insufficient main wallet balance. Please deposit first.', 400);
+      }
+
       await debitWallet(req.user._id, {
         amount: remaining,
         category: 'subscription',
@@ -83,7 +85,7 @@ exports.createSubscription = async (req, res, next) => {
         paymentMethod: 'wallet',
         status: 'active',
         startDate: new Date(),
-        endDate: new Date(Date.now() + (PLAN_DAYS[plan] || 365) * 24 * 60 * 60 * 1000),
+        endDate: new Date(Date.now() + (await getPlanDays(plan)) * 24 * 60 * 60 * 1000),
         transactionRef: `SUB-WALLET-${Date.now().toString(36).toUpperCase()}`,
         metadata: { fundingUsed, mainUsed: remaining }
       });
@@ -107,7 +109,7 @@ exports.approveSubscription = async (req, res, next) => {
     if (!sub) return sendError(res, 'Not found', 404);
     sub.status = 'active';
     sub.startDate = new Date();
-    sub.endDate = new Date(Date.now() + (PLAN_DAYS[sub.plan] || 365) * 24 * 60 * 60 * 1000);
+    sub.endDate = new Date(Date.now() + (await getPlanDays(sub.plan)) * 24 * 60 * 60 * 1000);
     sub.approvedBy = req.user._id;
     sub.approvedAt = new Date();
     await sub.save();
@@ -152,16 +154,7 @@ exports.updateSubscription = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
-exports.cancelSubscription = async (req, res, next) => {
-  try {
-    const sub = await Subscription.findOne({ userId: req.user._id, status: 'active' });
-    if (!sub) return sendError(res, 'No active subscription', 404);
-    sub.status = 'cancelled';
-    await sub.save();
-    await User.findByIdAndUpdate(req.user._id, { subscriptionStatus: 'cancelled' });
-    sendSuccess(res, sub, 'Subscription cancelled');
-  } catch (error) { next(error); }
-};
+// Cancel disabled as per requirement — subscriptions cannot be cancelled by users
 
 exports.deleteSubscription = async (req, res, next) => {
   try {
@@ -172,22 +165,47 @@ exports.deleteSubscription = async (req, res, next) => {
 };
 
 const getActivationAmount = async () => {
-  return Setting.getByKey('membership_price', 100);
+  const setting = await Setting.findOne({ key: 'membership_price' });
+  return (setting && Number(setting.value)) || 0;
 };
 
 const activateUserAndCreateSubscription = async (userId, amount, paymentMethod, metadata = {}) => {
+  const plan = 'yearly';
   const sub = await Subscription.create({
     userId,
-    plan: 'yearly',
+    plan,
     amount,
     paymentMethod,
     status: 'active',
     startDate: new Date(),
-    endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+    endDate: new Date(Date.now() + (await getPlanDays(plan)) * 24 * 60 * 60 * 1000),
     transactionRef: `SUB-${paymentMethod.toUpperCase()}-${Date.now().toString(36).toUpperCase()}`,
     metadata,
   });
   await User.findByIdAndUpdate(userId, { isApproved: true, subscriptionStatus: 'active', subscriptionExpiry: sub.endDate });
+
+  // Assign V1 rank if not exists
+  try {
+    const existingRank = await UserRank.findOne({ userId });
+    if (!existingRank) {
+      const firstRank = await Rank.findOne({ isActive: true }).sort({ order: 1 });
+      if (firstRank) {
+        await UserRank.create({
+          userId,
+          currentRankId: firstRank._id,
+          rankHistory: [{
+            rankId: firstRank._id,
+            achievedAt: new Date(),
+            reason: `Assigned ${firstRank.name} on subscription activation`,
+            changeType: 'automatic'
+          }]
+        });
+      }
+    }
+  } catch (e) {
+    console.error('[SUB] UserRank creation error:', e.message);
+  }
+
   try {
     await processReferralCommission(userId, amount, 'subscription');
   } catch (e) {
@@ -229,11 +247,6 @@ exports.activateWithBalance = async (req, res, next) => {
   try {
     const amount = await getActivationAmount();
 
-    const mainWallet = await Wallet.findOne({ userId: req.user._id, type: 'main' });
-    if (!mainWallet || mainWallet.availableBalance < amount) {
-      return sendError(res, `Insufficient main wallet balance. Activation requires $${amount}. Please deposit first.`, 400);
-    }
-
     const fundingWallet = await Wallet.findOne({ userId: req.user._id, type: 'funding' });
     const fundingPercent = await Setting.getByKey('funding_wallet_usage_percent', 20);
     const maxFundingUsage = (amount * fundingPercent) / 100;
@@ -253,6 +266,15 @@ exports.activateWithBalance = async (req, res, next) => {
     }
 
     const remaining = amount - fundingUsed;
+    const mainWallet = await Wallet.findOne({ userId: req.user._id, type: 'main' });
+    if (!mainWallet || mainWallet.availableBalance < remaining) {
+      const needed = remaining - (mainWallet?.availableBalance || 0);
+      const msg = mainWallet?.availableBalance < remaining
+        ? `Insufficient balance. You need $${needed.toFixed(2)} more in your main wallet.`
+        : `Insufficient main wallet balance. Activation requires $${amount}. Please deposit first.`;
+      return sendError(res, msg, 400);
+    }
+
     await debitWallet(req.user._id, {
       amount: remaining,
       category: 'subscription',
@@ -274,6 +296,11 @@ exports.activateByUpline = async (req, res, next) => {
     const { usernameOrEmail } = req.body;
     if (!usernameOrEmail) return sendError(res, 'Username or email is required', 400);
 
+    const uplineUser = await User.findById(req.user._id);
+    if (!uplineUser.isApproved || uplineUser.subscriptionStatus !== 'active') {
+      return sendError(res, 'Your account must be active before you can activate downline members. Please activate your own account first.', 403);
+    }
+
     const downline = await User.findOne({
       $or: [
         { email: usernameOrEmail.toLowerCase().trim() },
@@ -292,15 +319,34 @@ exports.activateByUpline = async (req, res, next) => {
 
     const amount = await getActivationAmount();
 
+    const fundingWallet = await Wallet.findOne({ userId: req.user._id, type: 'funding' });
+    const fundingPercent = await Setting.getByKey('funding_wallet_usage_percent', 20);
+    const maxFundingUsage = (amount * fundingPercent) / 100;
+    let fundingUsed = 0;
+
+    if (fundingWallet && fundingWallet.availableBalance > 0) {
+      fundingUsed = Math.min(fundingWallet.availableBalance, maxFundingUsage);
+      if (fundingUsed > 0) {
+        await debitWallet(req.user._id, {
+          amount: fundingUsed,
+          category: 'subscription',
+          description: `Account activation for downline ${downline.firstName} ${downline.lastName} - from funding wallet`,
+          referenceModel: 'Subscription',
+          walletType: 'funding',
+        });
+      }
+    }
+
+    const remaining = amount - fundingUsed;
     const mainWallet = await Wallet.findOne({ userId: req.user._id, type: 'main' });
-    if (!mainWallet || mainWallet.availableBalance < amount) {
-      return sendError(res, `Insufficient balance. Activation requires $${amount} in your main wallet.`, 400);
+    if (!mainWallet || mainWallet.availableBalance < remaining) {
+      return sendError(res, `Insufficient balance. You need $${remaining} in your main wallet after funding wallet contribution.`, 400);
     }
 
     await debitWallet(req.user._id, {
-      amount,
+      amount: remaining,
       category: 'subscription',
-      description: `Account activation for downline ${downline.firstName} ${downline.lastName}`,
+      description: `Account activation for downline ${downline.firstName} ${downline.lastName} - from main wallet`,
       referenceModel: 'Subscription',
     });
 
@@ -308,11 +354,11 @@ exports.activateByUpline = async (req, res, next) => {
       downline._id,
       amount,
       'upline',
-      { activatedBy: req.user._id, activatedByName: `${req.user.firstName} ${req.user.lastName}` }
+      { activatedBy: req.user._id, activatedByName: `${req.user.firstName} ${req.user.lastName}`, fundingUsed, mainUsed: remaining }
     );
 
     sendAccountApprovedEmail(downline).catch((e) => console.error('[EMAIL] sendAccountApprovedEmail:', e.message));
 
-    sendSuccess(res, { subscription: sub, downline: { _id: downline._id, firstName: downline.firstName, lastName: downline.lastName, email: downline.email } }, `Member ${downline.firstName} ${downline.lastName} activated successfully`, 201);
+    sendSuccess(res, { subscription: sub, downline: { _id: downline._id, firstName: downline.firstName, lastName: downline.lastName, email: downline.email }, fundingUsed, mainUsed: remaining }, `Member ${downline.firstName} ${downline.lastName} activated successfully`, 201);
   } catch (error) { next(error); }
 };

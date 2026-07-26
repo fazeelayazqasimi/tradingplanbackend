@@ -3,13 +3,19 @@ const Withdrawal = require('../models/Withdrawal');
 const Wallet = require('../models/Wallet');
 const WalletTransaction = require('../models/WalletTransaction');
 const User = require('../models/User');
+const UserRank = require('../models/UserRank');
+const Rank = require('../models/Rank');
 const Subscription = require('../models/Subscription');
+const Setting = require('../models/Setting');
 
 const { verifyIPN, parseIPNBody, getStatusFromIPN } = require('../services/coinPaymentService');
 const { processReferralCommission } = require('../services/referralService');
 const { sendAccountApprovedEmail } = require('../services/emailService');
 
-const PLAN_DAYS = { monthly: 30, yearly: 365, lifetime: 36500 };
+const getPlanDays = async (plan) => {
+  const setting = await Setting.findOne({ key: `plan_days_${plan}` });
+  return (setting && Number(setting.value)) || 365;
+};
 
 const handleDepositIPN = async (ipnData) => {
   const txnId = ipnData.txn_id;
@@ -88,12 +94,34 @@ const handleDepositIPN = async (ipnData) => {
       if (pendingSub) {
         pendingSub.status = 'active';
         pendingSub.startDate = new Date();
-        pendingSub.endDate = new Date(Date.now() + (PLAN_DAYS[pendingSub.plan] || 365) * 24 * 60 * 60 * 1000);
+        pendingSub.endDate = new Date(Date.now() + (await getPlanDays(pendingSub.plan)) * 24 * 60 * 60 * 1000);
         pendingSub.paymentMethod = 'crypto';
         pendingSub.transactionRef = `COIN-${txnId || deposit.coinPaymentRef}`;
         await pendingSub.save();
 
         await User.findByIdAndUpdate(deposit.userId, { isApproved: true, subscriptionStatus: 'active' });
+
+        // Assign V1 rank if not exists
+        try {
+          const existingRank = await UserRank.findOne({ userId: deposit.userId });
+          if (!existingRank) {
+            const firstRank = await Rank.findOne({ isActive: true }).sort({ order: 1 });
+            if (firstRank) {
+              await UserRank.create({
+                userId: deposit.userId,
+                currentRankId: firstRank._id,
+                rankHistory: [{
+                  rankId: firstRank._id,
+                  achievedAt: new Date(),
+                  reason: `Assigned ${firstRank.name} via CoinPayments subscription`,
+                  changeType: 'automatic'
+                }]
+              });
+            }
+          }
+        } catch (e) {
+          console.error('[WEBHOOK] UserRank creation error:', e.message);
+        }
 
         const user = await User.findById(deposit.userId);
         sendAccountApprovedEmail(user).catch((e) => console.error('[EMAIL] sendAccountApprovedEmail:', e.message));
