@@ -1,5 +1,10 @@
 const nodemailer = require('nodemailer');
+const sgMail = require('@sendgrid/mail');
 const Setting = require('../models/Setting');
+
+if (process.env.SENDGRID_API_KEY) {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+}
 
 const getBrandName = async () => {
   try {
@@ -10,7 +15,7 @@ const getBrandName = async () => {
   }
 };
 
-const createTransporter = () => {
+const createNodemailerTransporter = () => {
   const port = parseInt(process.env.EMAIL_PORT, 10) || 587;
   return nodemailer.createTransport({
     host: process.env.EMAIL_HOST,
@@ -72,27 +77,72 @@ const buildTemplate = (title, bodyContent, instituteName = 'The 4x Hub') => {
   `;
 };
 
+const sendViaSendGrid = async ({ to, subject, html, fromName }) => {
+  const name = fromName || await getBrandName();
+  const fromEmail = process.env.SENDGRID_FROM_EMAIL || process.env.EMAIL_USER;
+  const msg = {
+    to,
+    from: { email: fromEmail, name },
+    subject,
+    html,
+    trackingSettings: {
+      clickTracking: { enable: false },
+      openTracking: { enable: false },
+    },
+  };
+  const response = await sgMail.send(msg);
+  return { success: true, messageId: response[0]?.headers?.['x-message-id'] || 'sendgrid' };
+};
+
+const sendViaNodemailer = async ({ to, subject, html, fromName }) => {
+  const name = fromName || await getBrandName();
+  const transporter = createNodemailerTransporter();
+  const info = await transporter.sendMail({
+    from: `"${name}" <${process.env.EMAIL_USER}>`,
+    to,
+    subject,
+    html,
+    headers: {
+      'X-Priority': '1',
+      'X-MSMail-Priority': 'High',
+      'Importance': 'high',
+    },
+  });
+  return { success: true, messageId: info.messageId };
+};
+
 const sendEmail = async ({ to, subject, html, fromName }) => {
-  const configStr = `host=${process.env.EMAIL_HOST}:${process.env.EMAIL_PORT || 587} user=${process.env.EMAIL_USER}`;
-  try {
-    let name = fromName;
-    if (!name) {
-      try { name = await Setting.getByKey('institute_name', 'The 4x Hub'); } catch { name = 'The 4x Hub'; }
+  const configStr = `to=${to} subject="${subject}"`;
+
+  if (process.env.SENDGRID_API_KEY) {
+    try {
+      logEmail('info', `Sending via SendGrid: ${configStr}`);
+      const result = await sendViaSendGrid({ to, subject, html, fromName });
+      logEmail('info', `Sent OK via SendGrid to ${to}: ${result.messageId}`);
+      return result;
+    } catch (sgError) {
+      logEmail('error', `SendGrid FAILED for ${configStr}: ${sgError.message}`);
+      if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+        return { success: false, error: `SendGrid failed and no SMTP fallback: ${sgError.message}` };
+      }
     }
-    const transporter = createTransporter();
-    logEmail('info', `Sending to ${to}: "${subject}" via ${configStr}`);
-    const info = await transporter.sendMail({
-      from: `"${name}" <${process.env.EMAIL_USER}>`,
-      to,
-      subject,
-      html
-    });
-    logEmail('info', `Sent OK to ${to}: messageId=${info.messageId}`);
-    return { success: true, messageId: info.messageId };
-  } catch (error) {
-    logEmail('error', `FAILED to ${to}: "${subject}" via ${configStr} — ${error.message}`);
-    return { success: false, error: error.message };
   }
+
+  if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+    try {
+      logEmail('info', `Sending via Nodemailer: ${configStr}`);
+      const result = await sendViaNodemailer({ to, subject, html, fromName });
+      logEmail('info', `Sent OK via Nodemailer to ${to}: ${result.messageId}`);
+      return result;
+    } catch (nmError) {
+      logEmail('error', `Nodemailer FAILED for ${configStr}: ${nmError.message}`);
+      return { success: false, error: nmError.message };
+    }
+  }
+
+  const errMsg = 'No email provider configured (SENDGRID_API_KEY or EMAIL_USER/PASS)';
+  logEmail('error', `${errMsg} for ${configStr}`);
+  return { success: false, error: errMsg };
 };
 
 const withBrand = (fn) => async (...args) => {

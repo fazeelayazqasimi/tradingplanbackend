@@ -103,7 +103,15 @@ exports.updateRank = async (req, res, next) => {
 
 exports.createRank = async (req, res, next) => {
   try {
-    const rank = await Rank.create(req.body);
+    const data = { ...req.body };
+    if (data.order === undefined || data.order === null) {
+      const lastRank = await Rank.findOne().sort({ order: -1 });
+      data.order = (lastRank?.order ?? 0) + 1;
+    }
+    if (!data.slug && data.name) {
+      data.slug = data.name.toLowerCase().replace(/\s+/g, '-');
+    }
+    const rank = await Rank.create(data);
     sendSuccess(res, rank, 'Rank created', 201);
   } catch (error) { next(error); }
 };
