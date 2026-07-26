@@ -25,7 +25,12 @@ async function connectToDatabase() {
 const app = express();
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
-app.use(cors({ origin: process.env.FRONTEND_URL || '*', credentials: true }));
+app.use(cors({
+  origin: process.env.FRONTEND_URL
+    ? process.env.FRONTEND_URL.split(',').map(s => s.trim())
+    : '*',
+  credentials: true
+}));
 
 app.use('/api/webhooks', express.raw({ type: '*/*' }), require('./routes/webhooks'));
 
