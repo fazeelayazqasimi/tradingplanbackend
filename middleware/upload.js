@@ -5,23 +5,24 @@ const { mediaStorage } = require("../config/cloudinary");
 
 const useCloudinary = !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
 
-try {
-  ['uploads/media', 'uploads/avatars', 'uploads/courses', 'uploads/resources', 'uploads/branding'].forEach(dir => {
-    const p = path.join(__dirname, '..', dir);
-    if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
-  });
-} catch (e) {
-  console.warn('[UPLOAD] Could not create upload directories:', e.message);
-}
+const isServerless = !!process.env.VERCEL;
+const UPLOAD_BASE = isServerless ? '/tmp/uploads' : path.join(__dirname, '..', 'uploads');
+
+['media', 'avatars', 'courses', 'resources', 'branding', 'videos'].forEach(dir => {
+  const p = path.join(UPLOAD_BASE, dir);
+  if (!fs.existsSync(p)) {
+    try { fs.mkdirSync(p, { recursive: true }); } catch (e) { console.warn(`[UPLOAD] Could not create ${p}:`, e.message); }
+  }
+});
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    let folder = "uploads/resources";
+    let folder = path.join(UPLOAD_BASE, 'resources');
 
     if (file.fieldname === "avatar") {
-      folder = "uploads/avatars";
+      folder = path.join(UPLOAD_BASE, 'avatars');
     } else if (file.fieldname === "thumbnail" || file.fieldname === "courseImage" || file.fieldname === "courseThumbnail") {
-      folder = "uploads/courses";
+      folder = path.join(UPLOAD_BASE, 'courses');
     }
 
     cb(null, folder);
@@ -99,8 +100,7 @@ const brandingFilter = (req, file, cb) => {
 const uploadBranding = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
-      const dir = path.join(__dirname, '..', 'uploads', 'branding');
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const dir = path.join(UPLOAD_BASE, 'branding');
       cb(null, dir);
     },
     filename: (req, file, cb) => {
@@ -115,7 +115,7 @@ const uploadBranding = multer({
 
 const uploadMedia = multer({
   storage: useCloudinary ? mediaStorage : multer.diskStorage({
-    destination: (req, file, cb) => cb(null, "uploads/media"),
+    destination: (req, file, cb) => cb(null, path.join(UPLOAD_BASE, 'media')),
     filename: (req, file, cb) => {
       const ext = path.extname(file.originalname);
       cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
@@ -134,9 +134,7 @@ const uploadMedia = multer({
 const uploadVideo = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
-      const dir = path.join(__dirname, '..', 'uploads', 'videos');
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      cb(null, dir);
+      cb(null, path.join(UPLOAD_BASE, 'videos'));
     },
     filename: (req, file, cb) => {
       const ext = path.extname(file.originalname);

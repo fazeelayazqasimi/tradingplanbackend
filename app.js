@@ -11,6 +11,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const path = require('path');
+const fs = require('fs');
 
 const connectDB = require('./config/db');
 const seedAdmin = require('./database/seedAdmin');
@@ -48,7 +49,11 @@ app.use('/api/webhooks', express.raw({ type: '*/*' }), require('./routes/webhook
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+const isVercel = !!process.env.VERCEL;
+app.use('/uploads', express.static(isVercel ? '/tmp/uploads' : path.join(__dirname, 'uploads')));
+if (isVercel && fs.existsSync(path.join(__dirname, 'uploads'))) {
+  app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+}
 
 app.get('/api/health', async (req, res) => {
   try {
