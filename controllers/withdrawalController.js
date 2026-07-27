@@ -1,6 +1,7 @@
 const Withdrawal = require('../models/Withdrawal');
 const Wallet = require('../models/Wallet');
 const WalletTransaction = require('../models/WalletTransaction');
+const Setting = require('../models/Setting');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions } = require('../helpers/pagination');
 const { sendWithdrawalApprovedEmail } = require('../services/emailService');
@@ -21,29 +22,46 @@ exports.requestWithdrawal = async (req, res, next) => {
 
     const paymentDetails = { walletAddress: walletAddress.trim(), cryptocurrency: cryptocurrency || 'USDT' };
 
+    const feeTypeSetting = await Setting.findOne({ key: 'withdrawal_fee_type' }).lean();
+    const feePercentSetting = await Setting.findOne({ key: 'withdrawal_fee_percent' }).lean();
+    const feeFixedSetting = await Setting.findOne({ key: 'withdrawal_fee_fixed' }).lean();
+
+    const feeType = feeTypeSetting?.value || 'percent';
+    const feePercent = Math.max(0, Math.min(100, Number(feePercentSetting?.value) || 0));
+    const feeFixed = Math.max(0, Number(feeFixedSetting?.value) || 0);
+
+    let feeAmount;
+    if (feeType === 'fixed') {
+      feeAmount = feeFixed;
+    } else {
+      feeAmount = parseFloat(((amount * feePercent) / 100).toFixed(2));
+    }
+    feeAmount = Math.min(feeAmount, amount);
+    const netAmount = parseFloat((amount - feeAmount).toFixed(2));
+
     wallet.availableBalance -= amount;
     wallet.totalWithdrawn = (wallet.totalWithdrawn || 0) + amount;
     wallet.lastWithdrawalAt = new Date();
     await wallet.save();
 
-    await WalletTransaction.create({
-      walletId: wallet._id, userId: req.user._id,
-      type: 'debit', category: 'withdrawal', amount,
-      balanceAfter: wallet.availableBalance,
-      description: `Withdrawal initiated - ${amount} (USDT BEP20)`,
-      referenceId: paymentDetails.walletAddress.slice(-8),
-      referenceModel: 'Withdrawal', status: 'completed',
-    });
-
     const withdrawal = await Withdrawal.create({
-      userId: req.user._id, amount,
+      userId: req.user._id, amount, fee: feeAmount, netAmount,
       paymentMethod: method, cryptocurrency: 'USDT', network: 'BEP20',
       paymentDetails, status: 'processing', coinPaymentsTxnId: null,
     });
 
+    await WalletTransaction.create({
+      walletId: wallet._id, userId: req.user._id,
+      type: 'debit', category: 'withdrawal', amount,
+      balanceAfter: wallet.availableBalance,
+      description: `Withdrawal initiated - ${amount} (fee: ${feeAmount})`,
+      referenceId: withdrawal._id.toString(),
+      referenceModel: 'Withdrawal', status: 'completed',
+    });
+
     try {
       const payout = await createWithdrawal({
-        amount, coinType: 'USDT_BEP20',
+        amount: netAmount, coinType: 'USDT_BEP20',
         address: walletAddress.trim(),
         userId: req.user._id,
         paymentRef: withdrawal._id.toString(),
@@ -54,9 +72,9 @@ exports.requestWithdrawal = async (req, res, next) => {
       await withdrawal.save();
 
       const user = await User.findById(req.user._id);
-      if (user) sendWithdrawalApprovedEmail(user, amount).catch((e) => console.error('[EMAIL] sendWithdrawalApprovedEmail:', e.message));
-      return sendSuccess(res, withdrawal, 'Withdrawal initiated. Crypto payout processing.', 201);
-    } catch ( payoutErr ) {
+      if (user) sendWithdrawalApprovedEmail(user, netAmount).catch((e) => console.error('[EMAIL] sendWithdrawalApprovedEmail:', e.message));
+      return sendSuccess(res, withdrawal, `Withdrawal initiated. ${netAmount} USDT to your wallet.`, 201);
+    } catch (payoutErr) {
       console.error('[CoinPayments] Withdrawal payout failed:', payoutErr.message);
       withdrawal.payoutError = payoutErr.message;
       withdrawal.status = 'failed';
@@ -64,7 +82,7 @@ exports.requestWithdrawal = async (req, res, next) => {
       wallet.totalWithdrawn -= amount;
       await wallet.save();
       await withdrawal.save();
-      return sendError(res, `Payout failed: ${payoutErr.message}. Your balance has been restored.`, 500);
+      return sendError(res, `Payout failed. Balance restored.`, 500);
     }
   } catch (error) { next(error); }
 };

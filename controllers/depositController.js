@@ -15,7 +15,7 @@ exports.createDeposit = async (req, res, next) => {
       userId: req.user._id,
       amount: parseFloat(amount),
       paymentMethod: paymentMethod || 'usdt_bep20',
-      status: 'processing',
+      status: 'pending',
       screenshot: screenshot || null,
     });
 
@@ -25,34 +25,42 @@ exports.createDeposit = async (req, res, next) => {
         deposit.coinPaymentRef = result.payment.paymentRef;
         deposit.depositAddress = result.payment.depositAddress;
         deposit.coinType = 'USDT_BEP20';
-        deposit.status = 'pending_crypto';
+        deposit.status = 'pending';
+        deposit.expiresAt = result.payment.expiresAt;
         await deposit.save();
-        return sendSuccess(res, { ...deposit.toObject(), paymentUrl: result.payment.qrcodeUrl, depositAddress: result.payment.depositAddress, coinPaymentTxnId: result.payment.txnId }, 'Crypto deposit initiated. Send USDT to the provided address.');
+        return sendSuccess(res, { ...deposit.toObject(), paymentUrl: result.payment.qrcodeUrl, depositAddress: result.payment.depositAddress, coinPaymentTxnId: result.payment.txnId, expiresAt: result.payment.expiresAt }, 'Crypto deposit initiated. Send USDT to the provided address.');
       } catch (cpErr) {
         console.error('[CoinPayments] createTransaction error:', cpErr.message);
+        deposit.status = 'failed';
+        await deposit.save();
+        return sendError(res, 'Crypto deposit setup failed. Please try again.', 500);
       }
     }
 
-if (screenshot) {
+    if (screenshot) {
       deposit.status = 'approved';
       deposit.processedBy = deposit.userId;
       deposit.processedAt = new Date();
       await deposit.save();
 
-      let wallet = await Wallet.findOne({ userId: deposit.userId, type: 'funding' });
-      if (!wallet) wallet = await Wallet.create({ userId: deposit.userId, type: 'funding' });
-      wallet.availableBalance += deposit.amount;
-      wallet.totalEarned += deposit.amount;
-      wallet.lastCreditAt = new Date();
-      await wallet.save();
+      try {
+        let wallet = await Wallet.findOne({ userId: deposit.userId, type: 'funding' });
+        if (!wallet) wallet = await Wallet.create({ userId: deposit.userId, type: 'funding' });
+        wallet.availableBalance += deposit.amount;
+        wallet.totalEarned += deposit.amount;
+        wallet.lastCreditAt = new Date();
+        await wallet.save();
 
-      await WalletTransaction.create({
-        walletId: wallet._id, userId: deposit.userId,
-        type: 'credit', category: 'deposit', amount: deposit.amount,
-        balanceAfter: wallet.availableBalance,
-        description: `Deposit approved automatically - ${deposit.amount} (funding wallet)`,
-        referenceId: deposit._id, referenceModel: 'Deposit', status: 'completed',
-      });
+        await WalletTransaction.create({
+          walletId: wallet._id, userId: deposit.userId,
+          type: 'credit', category: 'deposit', amount: deposit.amount,
+          balanceAfter: wallet.availableBalance,
+          description: `Deposit approved automatically - ${deposit.amount} (funding wallet)`,
+          referenceId: deposit._id, referenceModel: 'Deposit', status: 'completed',
+        });
+      } catch (walletErr) {
+        console.error('[DEPOSIT] Auto-credit wallet error:', walletErr.message);
+      }
 
       return sendSuccess(res, deposit, 'Deposit approved and wallet credited', 201);
     }
