@@ -362,7 +362,7 @@ exports.sendOTP = async (req, res, next) => {
     if (existing) return sendError(res, 'Email already registered', 400);
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expires = new Date(Date.now() + 10 * 60 * 1000);
+    const expires = new Date(Date.now() + 60 * 1000);
 
     const TempOTP = require('../models/TempOTP');
     await TempOTP.findOneAndUpdate(
@@ -410,7 +410,7 @@ exports.sendPhoneOTP = async (req, res, next) => {
     if (!phone) return sendError(res, 'Phone number is required', 400);
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expires = new Date(Date.now() + 10 * 60 * 1000);
+    const expires = new Date(Date.now() + 60 * 1000);
 
     // Store OTP against phone number
     const TempOTP = require('../models/TempOTP');
