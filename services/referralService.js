@@ -34,24 +34,26 @@ const generateReferralCode = async (name) => {
   return `REF${Date.now().toString(36).toUpperCase().slice(-6)}`;
 };
 
+const HARDCODED_COMMISSIONS = { 1: 30, 2: 10, 3: 5, 4: 3, 5: 2 };
+
 const getRankBasedCommission = async (referrerId, level, purchaseAmount) => {
+  const settingsFallback = async () => {
+    const s = await Setting.findOne({ key: `referral_level_${level}_commission` });
+    return (s && Number(s.value)) || HARDCODED_COMMISSIONS[level] || 0;
+  };
+
   const userRank = await UserRank.findOne({ userId: referrerId }).populate('currentRankId').lean();
-  if (!userRank || !userRank.currentRankId) {
-    const settingsFallback = await Setting.findOne({ key: `referral_level_${level}_commission` });
-    return (settingsFallback && Number(settingsFallback.value)) || 0;
-  }
+  if (!userRank || !userRank.currentRankId) return settingsFallback();
 
   const rank = userRank.currentRankId;
-  if (level === 1) {
-    return rank.activationGain || 0;
-  }
-
-  return rank.indirectIncome || 0;
+  let amount = level === 1 ? rank.activationGain : rank.indirectIncome;
+  if (!amount || amount <= 0) amount = await settingsFallback();
+  return amount;
 };
 
 const getMaxReferralLevels = async () => {
   const setting = await Setting.findOne({ key: 'referral_max_levels' });
-  return (setting && Number(setting.value)) || 0;
+  return (setting && Number(setting.value)) || 5;
 };
 
 const processReferralCommission = async (referredUserId, purchaseAmount, conversionType = 'course') => {
