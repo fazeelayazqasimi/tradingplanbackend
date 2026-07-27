@@ -98,6 +98,7 @@ app.use('/api/coupons', require('./routes/coupons'));
 app.use('/api/brokers', require('./routes/brokers'));
 app.use('/api/crm', require('./routes/crm'));
 app.use('/api/media', require('./routes/media'));
+app.use('/api/classes', require('./routes/classes'));
 
 const { errorHandler, notFound } = require('./middleware/error');
 app.use(notFound);

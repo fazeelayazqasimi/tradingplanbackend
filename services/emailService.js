@@ -496,6 +496,41 @@ const sendScheduleEmail = async (student, crmRecord) => {
   });
 };
 
+const sendClassPublishedEmail = async (users, classSession) => {
+  const name = await getBrandName();
+  const classDate = classSession.date ? new Date(classSession.date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'TBD';
+  const typeLabel = classSession.type === 'online' ? 'Online (Google Meet)' : 'Physical Class';
+  const linkSection = classSession.type === 'online' && classSession.meetLink
+    ? `<div style="text-align:center;margin:16px 0;">
+        <a href="${classSession.meetLink}" style="background-color:#3b82f6;color:#ffffff;padding:12px 28px;text-decoration:none;border-radius:6px;font-size:15px;font-weight:600;display:inline-block;">Join Google Meet</a>
+       </div>`
+    : '';
+  const html = buildTemplate('New Class Published', `
+    <h2 style="margin:0 0 16px 0;color:#1f2937;font-size:20px;">New Class: ${classSession.title}</h2>
+    ${classSession.description ? `<p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.6;">${classSession.description}</p>` : ''}
+    <div style="background:#f3f4f6;border-radius:12px;padding:16px;margin-bottom:16px;">
+      <p style="margin:0 0 6px 0;font-size:14px;"><strong>Type:</strong> ${typeLabel}</p>
+      <p style="margin:0 0 6px 0;font-size:14px;"><strong>Date:</strong> ${classDate}</p>
+      ${classSession.time ? `<p style="margin:0 0 6px 0;font-size:14px;"><strong>Time:</strong> ${classSession.time}</p>` : ''}
+      ${classSession.instructor ? `<p style="margin:0 0 6px 0;font-size:14px;"><strong>Instructor:</strong> ${classSession.instructor}</p>` : ''}
+    </div>
+    ${linkSection}
+    <div style="text-align:center;margin:16px 0;">
+      <a href="${process.env.FRONTEND_URL}/student/classes" style="background-color:#3b82f6;color:#ffffff;padding:12px 28px;text-decoration:none;border-radius:6px;font-size:15px;font-weight:600;display:inline-block;">View Classes</a>
+    </div>
+  `, name);
+
+  const userArray = Array.isArray(users) ? users : [users];
+  const results = await Promise.allSettled(
+    userArray.map((user) => sendEmail({
+      to: user.email,
+      subject: `New ${typeLabel}: ${classSession.title} - ${name}`,
+      html
+    }))
+  );
+  return results;
+};
+
 module.exports = {
   sendEmail,
   sendWelcomeEmail,
@@ -513,5 +548,6 @@ module.exports = {
   sendCourseEnrollmentPendingEmail,
   sendAccountDeactivatedEmail,
   sendOTPEmail,
-  sendScheduleEmail
+  sendScheduleEmail,
+  sendClassPublishedEmail
 };

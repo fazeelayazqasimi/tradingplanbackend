@@ -15,6 +15,8 @@ exports.getDashboard = async (req, res, next) => {
   try {
     const [
       totalStudents,
+      approvedStudents,
+      unapprovedStudents,
       activeSubscriptions,
       totalCourses,
       totalSignals,
@@ -31,6 +33,8 @@ exports.getDashboard = async (req, res, next) => {
       recentSubscriptions,
     ] = await Promise.all([
       User.countDocuments({ role: 'student' }),
+      User.countDocuments({ role: 'student', isApproved: true }),
+      User.countDocuments({ role: 'student', isApproved: false }),
       Subscription.countDocuments({ status: 'active' }),
       Course.countDocuments(),
       Signal.countDocuments(),
@@ -134,6 +138,8 @@ exports.getDashboard = async (req, res, next) => {
 
     sendSuccess(res, {
       totalStudents,
+      approvedStudents,
+      unapprovedStudents,
       activeSubscriptions,
       pendingApprovals: pendingCoursePurchases,
       pendingCoursePurchases,
