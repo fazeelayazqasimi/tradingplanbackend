@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { getDashboard, getRevenueReport, getActivityLogs, getReferrals, getReferralStats, getReferralById } = require('../controllers/adminController');
+const { getDashboard, getRevenueReport, getActivityLogs, getReferrals, getReferralStats, getReferralTree, getReferralById } = require('../controllers/adminController');
 const { protect, authorize } = require('../middleware/auth');
 const { sendSuccess, sendError } = require('../helpers/response');
 
@@ -31,6 +31,7 @@ router.get('/revenue', getRevenueReport);
 router.get('/activity-logs', getActivityLogs);
 router.get('/referrals', getReferrals);
 router.get('/referrals/stats', getReferralStats);
+router.get('/referrals/tree', getReferralTree);
 router.get('/referrals/:id', getReferralById);
 
 router.post('/bulk-delete', async (req, res, next) => {

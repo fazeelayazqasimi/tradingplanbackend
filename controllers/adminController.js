@@ -244,6 +244,73 @@ exports.getReferralStats = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+const buildTree = async (userId, currentLevel = 1, maxDepth = 10) => {
+  if (currentLevel > maxDepth || !userId) return [];
+  const referrals = await Referral.find({ referrerId: userId, level: 1 })
+    .populate('referredUserId', 'firstName lastName email createdAt isApproved subscriptionStatus')
+    .lean();
+  const nodes = [];
+  for (const ref of referrals) {
+    if (!ref.referredUserId) continue;
+    const children = await buildTree(ref.referredUserId._id, currentLevel + 1, maxDepth);
+    nodes.push({
+      _id: ref._id,
+      user: ref.referredUserId,
+      level: currentLevel,
+      status: ref.status,
+      commission: ref.commissionAmount,
+      conversionType: ref.conversionType,
+      conversionAmount: ref.conversionAmount,
+      createdAt: ref.createdAt,
+      children,
+    });
+  }
+  return nodes;
+};
+
+exports.getReferralTree = async (req, res, next) => {
+  try {
+    const { userId } = req.query;
+    const users = [];
+    if (userId) {
+      const u = await User.findById(userId).select('firstName lastName email');
+      if (!u) return sendError(res, 'User not found', 404);
+      const tree = await buildTree(userId);
+      sendSuccess(res, {
+        user: u,
+        tree,
+        stats: {
+          totalDownline: countNodes(tree),
+          active: countActive(tree),
+          free: countFree(tree),
+        },
+      });
+    } else {
+      const referrers = await Referral.distinct('referrerId');
+      for (const id of referrers) {
+        const u = await User.findById(id).select('firstName lastName email');
+        if (u) {
+          const tree = await buildTree(id);
+          users.push({
+            user: u,
+            tree,
+            stats: {
+              totalDownline: countNodes(tree),
+              active: countActive(tree),
+              free: countFree(tree),
+            },
+          });
+        }
+      }
+      sendSuccess(res, { users });
+    }
+  } catch (error) { next(error); }
+};
+
+const countNodes = (nodes) => nodes.reduce((s, n) => s + 1 + countNodes(n.children || []), 0);
+const countActive = (nodes) => nodes.reduce((s, n) => s + ((n.user?.isApproved && n.user?.subscriptionStatus === 'active') ? 1 : 0) + countActive(n.children || []), 0);
+const countFree = (nodes) => nodes.reduce((s, n) => s + ((!n.user?.isApproved || n.user?.subscriptionStatus !== 'active') ? 1 : 0) + countFree(n.children || []), 0);
+
 exports.getReferralById = async (req, res, next) => {
   try {
     const referral = await Referral.findById(req.params.id)
