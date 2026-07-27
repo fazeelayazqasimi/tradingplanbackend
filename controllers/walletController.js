@@ -51,8 +51,12 @@ exports.getTransactionHistory = async (req, res, next) => {
 
 exports.getWalletStats = async (req, res, next) => {
   try {
-    const wallet = await Wallet.findOne({ userId: req.user._id });
-    if (!wallet) return sendSuccess(res, { totalEarned: 0, totalWithdrawn: 0, available: 0, pending: 0, byCategory: {}, expenses: {} });
+    const wallets = await Wallet.find({ userId: req.user._id });
+    if (!wallets || wallets.length === 0) return sendSuccess(res, { totalEarned: 0, totalWithdrawn: 0, available: 0, pending: 0, byCategory: {}, expenses: {} });
+    const totalEarnedAll = wallets.reduce((sum, w) => sum + (w.totalEarned || 0), 0);
+    const totalWithdrawnAll = wallets.reduce((sum, w) => sum + (w.totalWithdrawn || 0), 0);
+    const availableAll = wallets.reduce((sum, w) => sum + (w.availableBalance || 0), 0);
+    const pendingAll = wallets.reduce((sum, w) => sum + (w.pendingBalance || 0), 0);
     const byCategory = await WalletTransaction.aggregate([
       { $match: { userId: req.user._id, type: 'credit', category: { $ne: 'deposit' } } },
       { $group: { _id: '$category', total: { $sum: '$amount' } } },
@@ -65,12 +69,12 @@ exports.getWalletStats = async (req, res, next) => {
       { $match: { userId: req.user._id, type: 'credit', category: 'deposit' } },
       { $group: { _id: null, total: { $sum: '$amount' } } },
     ]);
-    const totalEarningsExcludingDeposits = wallet.totalEarned - (depositTotal[0]?.total || 0);
+    const totalEarningsExcludingDeposits = totalEarnedAll - (depositTotal[0]?.total || 0);
     sendSuccess(res, {
       totalEarned: Math.max(0, totalEarningsExcludingDeposits),
-      totalWithdrawn: wallet.totalWithdrawn,
-      available: wallet.availableBalance,
-      pending: wallet.pendingBalance,
+      totalWithdrawn: totalWithdrawnAll,
+      available: availableAll,
+      pending: pendingAll,
       byCategory: byCategory.reduce((a, c) => { a[c._id] = c.total; return a; }, {}),
       expenses: expenses.reduce((a, c) => { a[c._id] = c.total; return a; }, {})
     });
