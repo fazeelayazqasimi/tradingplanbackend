@@ -1,5 +1,5 @@
 const MarketOverview = require('../models/MarketOverview');
-const { sendSuccess, sendError } = require('../utils/response');
+const { sendSuccess, sendError } = require('../helpers/response');
 
 exports.getMarketOverview = async (req, res, next) => {
   try {

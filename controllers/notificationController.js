@@ -1,5 +1,5 @@
 const Notification = require('../models/Notification');
-const { sendSuccess, sendError } = require('../utils/response');
+const { sendSuccess, sendError } = require('../helpers/response');
 
 exports.getMyNotifications = async (req, res, next) => {
   try {
