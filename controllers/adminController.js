@@ -182,6 +182,83 @@ exports.getActivityLogs = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+exports.getReferrals = async (req, res, next) => {
+  try {
+    const { page, limit, sort } = getPaginationOptions(req.query);
+    const filter = {};
+    if (req.query.search) {
+      const users = await User.find({
+        $or: [
+          { firstName: { $regex: req.query.search, $options: 'i' } },
+          { lastName: { $regex: req.query.search, $options: 'i' } },
+          { email: { $regex: req.query.search, $options: 'i' } },
+        ],
+      }).select('_id');
+      filter.$or = [
+        { referrerId: { $in: users.map(u => u._id) } },
+        { referredUserId: { $in: users.map(u => u._id) } },
+      ];
+    }
+    const total = await Referral.countDocuments(filter);
+    const referrals = await Referral.find(filter)
+      .sort(sort || { createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .populate('referrerId', 'firstName lastName email')
+      .populate('referredUserId', 'firstName lastName email isApproved subscriptionStatus')
+      .lean();
+    const mapped = referrals.map(r => ({
+      _id: r._id,
+      referrer: r.referrerId,
+      referredUser: r.referredUserId,
+      referralCode: r.referralCode,
+      level: r.level,
+      status: r.status,
+      commission: r.commissionAmount,
+      createdAt: r.createdAt,
+    }));
+    sendPaginated(res, mapped, total, page, limit);
+  } catch (error) { next(error); }
+};
+
+exports.getReferralStats = async (req, res, next) => {
+  try {
+    const totalReferrals = await Referral.countDocuments();
+    const paid = await Referral.aggregate([
+      { $match: { status: { $in: ['converted', 'paid'] } } },
+      { $group: { _id: null, total: { $sum: '$commissionAmount' } } },
+    ]);
+    const pending = await Referral.aggregate([
+      { $match: { status: 'pending' } },
+      { $group: { _id: null, total: { $sum: '$commissionAmount' } } },
+    ]);
+    const activeReferrals = await Referral.countDocuments({ status: { $in: ['converted', 'paid'] } });
+    const freeReferrals = await Referral.countDocuments({ status: 'pending' });
+    sendSuccess(res, {
+      totalReferrals,
+      totalCommissionsPaid: paid[0]?.total || 0,
+      pendingCommissions: pending[0]?.total || 0,
+      activeReferrals,
+      freeReferrals,
+    });
+  } catch (error) { next(error); }
+};
+
+exports.getReferralById = async (req, res, next) => {
+  try {
+    const referral = await Referral.findById(req.params.id)
+      .populate('referrerId', 'firstName lastName email')
+      .populate('referredUserId', 'firstName lastName email isApproved subscriptionStatus')
+      .lean();
+    if (!referral) return sendError(res, 'Referral not found', 404);
+    sendSuccess(res, {
+      ...referral,
+      referrer: referral.referrerId,
+      referredUser: referral.referredUserId,
+    });
+  } catch (error) { next(error); }
+};
+
 exports.logActivity = async (userId, action, entity, entityId, changes, req) => {
   try {
     await ActivityLog.create({ userId, action, entity, entityId, changes, ipAddress: req?.ip, userAgent: req?.get('user-agent') });
