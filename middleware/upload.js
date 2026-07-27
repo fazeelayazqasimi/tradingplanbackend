@@ -5,10 +5,14 @@ const { mediaStorage } = require("../config/cloudinary");
 
 const useCloudinary = !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
 
-['uploads/media', 'uploads/avatars', 'uploads/courses', 'uploads/resources', 'uploads/branding'].forEach(dir => {
-  const p = path.join(__dirname, '..', dir);
-  if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
-});
+try {
+  ['uploads/media', 'uploads/avatars', 'uploads/courses', 'uploads/resources', 'uploads/branding'].forEach(dir => {
+    const p = path.join(__dirname, '..', dir);
+    if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
+  });
+} catch (e) {
+  console.warn('[UPLOAD] Could not create upload directories:', e.message);
+}
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
