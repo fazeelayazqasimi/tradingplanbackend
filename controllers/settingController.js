@@ -33,15 +33,20 @@ exports.bulkUpdateSettings = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
-exports.uploadLogoSetting = async (req, res, next) => {
+exports.uploadBranding = async (req, res, next) => {
   try {
     if (!req.file) return sendError(res, 'No file uploaded', 400);
-    const logoUrl = `/uploads/branding/${req.file.filename}`;
+    const type = req.body.type || 'logo';
+    const keyMap = { logo: 'institute_logo', favicon: 'institute_favicon', footer_logo: 'footer_logo' };
+    const key = keyMap[type] || 'institute_logo';
+    const labelMap = { logo: 'Logo', favicon: 'Favicon', footer_logo: 'Footer Logo' };
+    const label = labelMap[type] || 'Branding';
+    const fileUrl = `/uploads/branding/${req.file.filename}`;
     await Setting.findOneAndUpdate(
-      { key: 'institute_logo' },
-      { value: logoUrl, category: 'general', description: 'Institute logo URL' },
+      { key },
+      { value: fileUrl, category: 'general', description: `Institute ${label} URL` },
       { new: true, upsert: true }
     );
-    sendSuccess(res, { url: logoUrl, key: 'institute_logo' }, 'Logo uploaded successfully');
+    sendSuccess(res, { url: fileUrl, key }, `${label} uploaded successfully`);
   } catch (error) { next(error); }
 };

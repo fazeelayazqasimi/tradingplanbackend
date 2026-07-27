@@ -88,22 +88,29 @@ const uploadResource = multer({
   fileFilter: imageFilter,
 });
 
-const uploadLogo = multer({
+const brandingFilter = (req, file, cb) => {
+  const allowed = /jpeg|jpg|png|gif|webp|svg|ico/;
+  const extname = allowed.test(path.extname(file.originalname).toLowerCase());
+  const mimetype = file.mimetype.startsWith("image/") || file.mimetype === 'image/x-icon' || file.mimetype === 'image/vnd.microsoft.icon';
+  if (extname && mimetype) return cb(null, true);
+  cb(new Error("Only image files (jpeg, jpg, png, gif, webp, svg, ico) are allowed"), false);
+};
+
+const uploadBranding = multer({
   storage: multer.diskStorage({
-    destination: (req, file, cb) => cb(null, "uploads/branding"),
+    destination: (req, file, cb) => {
+      const dir = path.join(__dirname, '..', 'uploads', 'branding');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
     filename: (req, file, cb) => {
+      const type = req.body.type || 'logo';
       const ext = path.extname(file.originalname);
-      cb(null, `logo${ext}`);
+      cb(null, `${type}${ext}`);
     },
   }),
   limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    const allowed = /jpeg|jpg|png|gif|webp|svg/;
-    const extname = allowed.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = file.mimetype.startsWith("image/");
-    if (extname && mimetype) return cb(null, true);
-    cb(new Error("Only image files are allowed"), false);
-  },
+  fileFilter: brandingFilter,
 });
 
 const uploadMedia = multer({
@@ -146,4 +153,4 @@ const uploadVideo = multer({
   },
 });
 
-module.exports = { uploadAvatar, uploadCourse, uploadResource, uploadLogo, uploadMedia, uploadVideo };
+module.exports = { uploadAvatar, uploadCourse, uploadResource, uploadLogo: uploadBranding, uploadBranding, uploadMedia, uploadVideo };
