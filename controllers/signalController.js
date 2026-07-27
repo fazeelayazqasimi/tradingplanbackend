@@ -39,10 +39,12 @@ exports.getSignal = async (req, res, next) => {
 exports.createSignal = async (req, res, next) => {
   try {
     const signal = await Signal.create({ ...req.body, userId: req.user._id });
-    try {
-      const students = await User.find({ role: 'student', isActive: true }).select('email firstName');
-      if (students.length > 0) sendSignalPublishedEmail(students, signal);
-    } catch (e) { console.error('[EMAIL] sendSignalPublishedEmail:', e.message); }
+    if (signal.isPublished) {
+      try {
+        const students = await User.find({ role: 'student', isActive: true }).select('email firstName');
+        if (students.length > 0) sendSignalPublishedEmail(students, signal);
+      } catch (e) { console.error('[EMAIL] sendSignalPublishedEmail:', e.message); }
+    }
     sendSuccess(res, signal, 'Signal created', 201);
   } catch (error) {
     next(error);
@@ -53,6 +55,12 @@ exports.updateSignal = async (req, res, next) => {
   try {
     const signal = await Signal.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
     if (!signal) return sendError(res, 'Signal not found', 404);
+    if (req.body.isPublished && !signal.isPublished) {
+      try {
+        const students = await User.find({ role: 'student', isActive: true }).select('email firstName');
+        if (students.length > 0) sendSignalPublishedEmail(students, signal);
+      } catch (e) { console.error('[EMAIL] sendSignalPublishedEmail:', e.message); }
+    }
     sendSuccess(res, signal, 'Signal updated');
   } catch (error) {
     next(error);

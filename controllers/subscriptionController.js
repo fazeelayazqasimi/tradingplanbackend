@@ -227,12 +227,8 @@ exports.activateWithPin = async (req, res, next) => {
     const validation = await coupon.isValid(req.user._id, 0);
     if (!validation.valid) return sendError(res, validation.reason, 400);
 
-    if (coupon.usedBy.includes(req.user._id)) {
-      return sendError(res, 'You have already used this PIN code', 400);
-    }
-
-    if (coupon.usedCount >= 1) {
-      return sendError(res, 'This PIN code has already been used', 400);
+    if (coupon.usedBy.includes(req.user._id) || coupon.usedCount >= 1) {
+      return sendError(res, 'This PIN code has expired', 400);
     }
 
     coupon.usedCount += 1;

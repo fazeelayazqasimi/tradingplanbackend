@@ -6,9 +6,7 @@ exports.getAll = async (req, res, next) => {
   try {
     const { page, limit, sort } = getPaginationOptions(req.query);
     const filter = {};
-    if (req.query.type) filter.type = req.query.type;
     if (req.query.isPublished !== undefined) filter.isPublished = req.query.isPublished === 'true';
-    if (req.query.tag) filter.tags = req.query.tag;
     const total = await Media.countDocuments(filter);
     const items = await Media.find(filter)
       .populate('uploadedBy', 'firstName lastName')
@@ -21,18 +19,20 @@ exports.getAll = async (req, res, next) => {
 
 exports.getPublished = async (req, res, next) => {
   try {
-    const filter = { isPublished: true };
-    if (req.query.type) filter.type = req.query.type;
-    const items = await Media.find(filter).sort({ createdAt: -1 }).limit(50);
+    const items = await Media.find({ isPublished: true }).sort({ createdAt: -1 }).limit(50);
     sendSuccess(res, items);
   } catch (error) { next(error); }
 };
 
 exports.create = async (req, res, next) => {
   try {
-    const { type, title, description, url, tags, thumbnailUrl } = req.body;
+    const { title } = req.body;
+    if (!title) return sendError(res, 'Title is required', 400);
+    const imagePaths = (req.files || []).map(f => f.path.replace(/\\/g, '/'));
+    if (imagePaths.length === 0) return sendError(res, 'At least one image is required', 400);
     const media = await Media.create({
-      type, title, description, url, tags, thumbnailUrl,
+      title,
+      images: imagePaths,
       uploadedBy: req.user._id,
     });
     sendSuccess(res, media, 'Media created', 201);
@@ -41,8 +41,18 @@ exports.create = async (req, res, next) => {
 
 exports.update = async (req, res, next) => {
   try {
-    const media = await Media.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    const media = await Media.findById(req.params.id);
     if (!media) return sendError(res, 'Media not found', 404);
+    if (req.body.title) media.title = req.body.title;
+    if (req.files && req.files.length > 0) {
+      const newImages = req.files.map(f => f.path.replace(/\\/g, '/'));
+      media.images = media.images.concat(newImages);
+    }
+    if (req.body.removeImages) {
+      const remove = JSON.parse(req.body.removeImages);
+      media.images = media.images.filter(img => !remove.includes(img));
+    }
+    await media.save();
     sendSuccess(res, media, 'Media updated');
   } catch (error) { next(error); }
 };

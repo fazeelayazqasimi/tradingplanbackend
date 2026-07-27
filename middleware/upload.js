@@ -93,4 +93,22 @@ const uploadLogo = multer({
   },
 });
 
-module.exports = { uploadAvatar, uploadCourse, uploadResource, uploadLogo };
+const uploadMedia = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, "uploads/media"),
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname);
+      cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
+    },
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = /jpeg|jpg|png|gif|webp/;
+    const extname = allowed.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = file.mimetype.startsWith("image/");
+    if (extname && mimetype) return cb(null, true);
+    cb(new Error("Only image files (jpeg, jpg, png, gif, webp) are allowed"), false);
+  },
+});
+
+module.exports = { uploadAvatar, uploadCourse, uploadResource, uploadLogo, uploadMedia };
