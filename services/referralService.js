@@ -89,8 +89,8 @@ const processReferralCommission = async (referredUserId, purchaseAmount, convers
         amount: commissionAmount,
         category: chainLevel === 1 ? 'direct_income' : 'indirect_income',
         description: chainLevel === 1
-          ? `Activation earning from ${referredUser.firstName} ${referredUser.lastName}'s course purchase`
-          : `Indirect earning from ${referredUser.firstName} ${referredUser.lastName}'s course purchase`,
+          ? `Activation earning from ${referredUser.firstName} ${referredUser.lastName}'s ${conversionType === 'subscription' ? 'membership activation' : conversionType}`
+          : `Indirect earning from ${referredUser.firstName} ${referredUser.lastName}'s ${conversionType === 'subscription' ? 'membership activation' : conversionType}`,
         referenceModel: 'Referral',
         referenceId: referredUserId,
         metadata: {

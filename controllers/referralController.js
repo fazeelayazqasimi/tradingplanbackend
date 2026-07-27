@@ -1,5 +1,6 @@
 const Referral = require('../models/Referral');
 const User = require('../models/User');
+const Setting = require('../models/Setting');
 const WalletTransaction = require('../models/WalletTransaction');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions } = require('../helpers/pagination');
@@ -14,10 +15,12 @@ exports.getMyReferralCode = async (req, res, next) => {
 
 async function processPendingForUser(userId) {
   try {
+    const setting = await Setting.findOne({ key: 'membership_price' });
+    const amount = (setting && Number(setting.value)) || 120;
     const pending = await Referral.find({ referrerId: userId, status: 'pending' }).populate('referredUserId', 'isApproved').lean();
     for (const ref of pending) {
       if (ref.referredUserId && ref.referredUserId.isApproved) {
-        await processReferralCommission(ref.referredUserId._id, 120, 'subscription');
+        await processReferralCommission(ref.referredUserId._id, amount, 'subscription');
       }
     }
   } catch (e) {
