@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { getSubscriptions, getMySubscription, createSubscription, updateSubscription, approveSubscription, rejectSubscription, deleteSubscription, activateWithPin, activateWithBalance, activateByUpline } = require('../controllers/subscriptionController');
+const { getSubscriptions, getMySubscription, createSubscription, updateSubscription, approveSubscription, rejectSubscription, deleteSubscription, activateWithPin, activateWithBalance, activateByUpline, getActivationInfo } = require('../controllers/subscriptionController');
 const { protect, authorize } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 const { createSubscriptionValidator, adminApprovalValidator } = require('../validators/subscriptionValidators');
@@ -7,6 +7,7 @@ const { createSubscriptionValidator, adminApprovalValidator } = require('../vali
 router.use(protect);
 router.get('/', authorize('admin'), getSubscriptions);
 router.get('/me', getMySubscription);
+router.get('/activation-info', getActivationInfo);
 router.post('/activate-with-pin', activateWithPin);
 router.post('/activate-with-balance', activateWithBalance);
 router.post('/activate-by-upline', activateByUpline);

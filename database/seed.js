@@ -120,6 +120,7 @@ const seed = async () => {
       { key: 'plan_days_monthly', value: 30, category: 'subscription', description: 'Monthly plan duration in days' },
       { key: 'plan_days_yearly', value: 365, category: 'subscription', description: 'Yearly plan duration in days' },
       { key: 'plan_days_lifetime', value: 36500, category: 'subscription', description: 'Lifetime plan duration in days' },
+      { key: 'upline_activation_discount', value: 20, category: 'subscription', description: 'Discount percentage for upline when activating a downline package' },
     ];
     await Setting.insertMany(defaultSettings);
     console.log('Settings created:', defaultSettings.length);

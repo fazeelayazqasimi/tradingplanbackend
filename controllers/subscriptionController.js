@@ -216,6 +216,14 @@ const activateUserAndCreateSubscription = async (userId, amount, paymentMethod, 
 
 const PIN_AMOUNT = 120;
 
+exports.getActivationInfo = async (req, res, next) => {
+  try {
+    const membershipPrice = await Setting.getByKey('membership_price', 100);
+    const uplineDiscount = await Setting.getByKey('upline_activation_discount', 20);
+    sendSuccess(res, { membershipPrice: Number(membershipPrice), uplineActivationDiscount: Number(uplineDiscount) });
+  } catch (error) { next(error); }
+};
+
 exports.activateWithPin = async (req, res, next) => {
   try {
     const { code } = req.body;
@@ -321,12 +329,14 @@ exports.activateByUpline = async (req, res, next) => {
     }
 
     const amount = await getActivationAmount();
+    const discountPercent = await Setting.getByKey('upline_activation_discount', 20);
+    const discountedAmount = Math.round(amount * (100 - discountPercent) / 100);
 
     const fundingWallet = await Wallet.findOne({ userId: req.user._id, type: 'funding' });
     let fundingUsed = 0;
 
     if (fundingWallet && fundingWallet.availableBalance > 0) {
-      fundingUsed = Math.min(fundingWallet.availableBalance, amount);
+      fundingUsed = Math.min(fundingWallet.availableBalance, discountedAmount);
       if (fundingUsed > 0) {
         await debitWallet(req.user._id, {
           amount: fundingUsed,
@@ -338,7 +348,7 @@ exports.activateByUpline = async (req, res, next) => {
       }
     }
 
-    const remaining = amount - fundingUsed;
+    const remaining = discountedAmount - fundingUsed;
     const mainWallet = await Wallet.findOne({ userId: req.user._id, type: 'main' });
     if (remaining > 0 && (!mainWallet || mainWallet.availableBalance < remaining)) {
       return sendError(res, `Insufficient balance. You need $${remaining} more in your wallet.`, 400);
@@ -357,7 +367,7 @@ exports.activateByUpline = async (req, res, next) => {
       downline._id,
       amount,
       'upline',
-      { activatedBy: req.user._id, activatedByName: `${req.user.firstName} ${req.user.lastName}`, fundingUsed, mainUsed: remaining }
+      { activatedBy: req.user._id, activatedByName: `${req.user.firstName} ${req.user.lastName}`, fundingUsed, mainUsed: remaining, originalAmount: amount, discountPercent, discountedAmount }
     );
 
     sendAccountApprovedEmail(downline).catch((e) => console.error('[EMAIL] sendAccountApprovedEmail:', e.message));
