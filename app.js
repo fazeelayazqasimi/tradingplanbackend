@@ -28,9 +28,18 @@ const app = express();
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(cors({
-  origin: process.env.FRONTEND_URL
-    ? process.env.FRONTEND_URL.split(',').map(s => s.trim())
-    : '*',
+  origin: function (origin, callback) {
+    const defaultAllowed = ['https://the4xhub.com', 'https://tradingplanfrontend.vercel.app', 'http://localhost:5173'];
+    const envOrigins = process.env.FRONTEND_URL
+      ? process.env.FRONTEND_URL.split(',').map(s => s.trim())
+      : [];
+    const allowed = [...new Set([...defaultAllowed, ...envOrigins])];
+    if (!origin || allowed.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true
 }));
 
