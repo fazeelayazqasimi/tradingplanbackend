@@ -1,5 +1,14 @@
 const multer = require("multer");
 const path = require("path");
+const fs = require("fs");
+const { mediaStorage } = require("../config/cloudinary");
+
+const useCloudinary = !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
+
+['uploads/media', 'uploads/avatars', 'uploads/courses', 'uploads/resources', 'uploads/branding'].forEach(dir => {
+  const p = path.join(__dirname, '..', dir);
+  if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
+});
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -94,7 +103,7 @@ const uploadLogo = multer({
 });
 
 const uploadMedia = multer({
-  storage: multer.diskStorage({
+  storage: useCloudinary ? mediaStorage : multer.diskStorage({
     destination: (req, file, cb) => cb(null, "uploads/media"),
     filename: (req, file, cb) => {
       const ext = path.extname(file.originalname);
