@@ -15,7 +15,7 @@ exports.createDeposit = async (req, res, next) => {
       userId: req.user._id,
       amount: parseFloat(amount),
       paymentMethod: paymentMethod || 'usdt_bep20',
-      status: 'approved',
+      status: 'pending',
       screenshot: screenshot || null,
     });
 
@@ -28,13 +28,21 @@ exports.createDeposit = async (req, res, next) => {
         deposit.status = 'pending';
         deposit.expiresAt = result.payment.expiresAt;
         await deposit.save();
-        return sendSuccess(res, { ...deposit.toObject(), paymentUrl: result.payment.qrcodeUrl, depositAddress: result.payment.depositAddress, coinPaymentTxnId: result.payment.txnId, expiresAt: result.payment.expiresAt }, 'Crypto deposit initiated. Send USDT to the provided address. Once confirmed your wallet will be credited.');
+        return sendSuccess(res, { ...deposit.toObject(), paymentUrl: result.payment.qrcodeUrl, depositAddress: result.payment.depositAddress, coinPaymentTxnId: result.payment.txnId, expiresAt: result.payment.expiresAt }, 'Crypto deposit created. Send USDT to the provided address. Your wallet will be credited once the payment is confirmed.');
       } catch (cpErr) {
         console.error('[CoinPayments] createTransaction error:', cpErr.message);
-        deposit.status = 'approved';
+        deposit.status = 'pending';
         deposit.payoutError = cpErr.message;
         await deposit.save();
+        return sendSuccess(res, deposit, 'Crypto deposit requested. Awaiting payment confirmation.', 201);
       }
+    }
+
+    if (screenshot) {
+      deposit.status = 'approved';
+      deposit.processedBy = deposit.userId;
+      deposit.processedAt = new Date();
+      await deposit.save();
     }
 
     try {
