@@ -466,6 +466,36 @@ const sendOTPEmail = async (email, otp) => {
   });
 };
 
+const sendScheduleEmail = async (student, crmRecord) => {
+  const name = await getBrandName();
+  const days = crmRecord.schedule?.days?.join(', ') || 'Not set';
+  const startTime = crmRecord.schedule?.startTime || 'N/A';
+  const endTime = crmRecord.schedule?.endTime || 'N/A';
+  const html = buildTemplate('Your Class Schedule', `
+    <h2 style="margin:0 0 16px 0;color:#1f2937;font-size:20px;">Your Class Schedule is Ready</h2>
+    <p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.6;">
+      Hi ${student.firstName},
+    </p>
+    <p style="margin:0 0 16px 0;font-size:15px;color:#374151;line-height:1.6;">
+      Your class schedule has been assigned. Here are the details:
+    </p>
+    <div style="background:#f3f4f6;border-radius:12px;padding:16px;margin-bottom:16px;">
+      <p style="margin:0 0 6px 0;font-size:14px;"><strong>Days:</strong> ${days}</p>
+      <p style="margin:0 0 6px 0;font-size:14px;"><strong>Time:</strong> ${startTime} - ${endTime}</p>
+      <p style="margin:0 0 6px 0;font-size:14px;"><strong>Timezone:</strong> ${crmRecord.schedule?.timezone || 'UTC'}</p>
+      ${crmRecord.notes ? `<p style="margin:0;font-size:14px;"><strong>Notes:</strong> ${crmRecord.notes}</p>` : ''}
+    </div>
+    <p style="margin:0 0 4px 0;font-size:14px;color:#6b7280;">
+      Please log in to your dashboard to view your full schedule.
+    </p>
+  `, name);
+  return sendEmail({
+    to: student.email,
+    subject: `Your Class Schedule - ${name}`,
+    html
+  });
+};
+
 module.exports = {
   sendEmail,
   sendWelcomeEmail,
@@ -482,5 +512,6 @@ module.exports = {
   sendReferralSignupEmail,
   sendCourseEnrollmentPendingEmail,
   sendAccountDeactivatedEmail,
-  sendOTPEmail
+  sendOTPEmail,
+  sendScheduleEmail
 };

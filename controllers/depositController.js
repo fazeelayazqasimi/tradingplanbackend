@@ -145,7 +145,6 @@ exports.approveDeposit = async (req, res, next) => {
     if (!wallet) wallet = await Wallet.create({ userId: deposit.userId, type: walletType });
 
     wallet.availableBalance += deposit.amount;
-    wallet.totalEarned += deposit.amount;
     wallet.lastCreditAt = new Date();
     await wallet.save();
 

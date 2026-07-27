@@ -1,5 +1,6 @@
 const Referral = require('../models/Referral');
 const User = require('../models/User');
+const WalletTransaction = require('../models/WalletTransaction');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions } = require('../helpers/pagination');
 
@@ -18,11 +19,27 @@ exports.getReferralStats = async (req, res, next) => {
       { $match: { referrerId: req.user._id, status: { $in: ['converted', 'paid'] } } },
       { $group: { _id: null, total: { $sum: '$commissionAmount' } } },
     ]);
-    const pending = await Referral.aggregate([
-      { $match: { referrerId: req.user._id, status: 'converted' } },
+    const pendingCommissions = await Referral.aggregate([
+      { $match: { referrerId: req.user._id, status: 'pending' } },
       { $group: { _id: null, total: { $sum: '$commissionAmount' } } },
     ]);
-    sendSuccess(res, { directReferrals: directCount, indirectReferrals: indirectCount, totalEarnings: earnings[0]?.total || 0, pendingCommission: pending[0]?.total || 0 });
+    const pendingCount = await Referral.countDocuments({ referrerId: req.user._id, status: 'pending' });
+    const activeCount = await Referral.countDocuments({ referrerId: req.user._id, status: { $in: ['converted', 'paid'] } });
+
+    const freeRegEarnings = await WalletTransaction.aggregate([
+      { $match: { userId: req.user._id, category: 'bonus', description: /Free registration/i } },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]);
+
+    sendSuccess(res, {
+      directReferrals: directCount,
+      indirectReferrals: indirectCount,
+      totalEarnings: earnings[0]?.total || 0,
+      pendingCommission: pendingCommissions[0]?.total || 0,
+      pendingReferrals: pendingCount,
+      activeReferrals: activeCount,
+      freeRegistrationEarnings: freeRegEarnings[0]?.total || 0,
+    });
   } catch (error) { next(error); }
 };
 

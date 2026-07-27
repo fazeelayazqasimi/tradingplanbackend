@@ -54,15 +54,20 @@ exports.getWalletStats = async (req, res, next) => {
     const wallet = await Wallet.findOne({ userId: req.user._id });
     if (!wallet) return sendSuccess(res, { totalEarned: 0, totalWithdrawn: 0, available: 0, pending: 0, byCategory: {}, expenses: {} });
     const byCategory = await WalletTransaction.aggregate([
-      { $match: { userId: req.user._id, type: 'credit' } },
+      { $match: { userId: req.user._id, type: 'credit', category: { $ne: 'deposit' } } },
       { $group: { _id: '$category', total: { $sum: '$amount' } } },
     ]);
     const expenses = await WalletTransaction.aggregate([
       { $match: { userId: req.user._id, type: 'debit' } },
       { $group: { _id: '$category', total: { $sum: '$amount' } } },
     ]);
+    const depositTotal = await WalletTransaction.aggregate([
+      { $match: { userId: req.user._id, type: 'credit', category: 'deposit' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]);
+    const totalEarningsExcludingDeposits = wallet.totalEarned - (depositTotal[0]?.total || 0);
     sendSuccess(res, {
-      totalEarned: wallet.totalEarned,
+      totalEarned: Math.max(0, totalEarningsExcludingDeposits),
       totalWithdrawn: wallet.totalWithdrawn,
       available: wallet.availableBalance,
       pending: wallet.pendingBalance,

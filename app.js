@@ -13,12 +13,14 @@ const helmet = require('helmet');
 const path = require('path');
 
 const connectDB = require('./config/db');
+const seedAdmin = require('./database/seedAdmin');
 
 let isConnected = false;
 
 async function connectToDatabase() {
   if (isConnected) return;
   await connectDB();
+  await seedAdmin();
   isConnected = true;
 }
 
@@ -85,6 +87,8 @@ app.use('/api/payment-accounts', require('./routes/paymentAccounts'));
 app.use('/api/deposits', require('./routes/deposits'));
 app.use('/api/coupons', require('./routes/coupons'));
 app.use('/api/brokers', require('./routes/brokers'));
+app.use('/api/crm', require('./routes/crm'));
+app.use('/api/media', require('./routes/media'));
 
 const { errorHandler, notFound } = require('./middleware/error');
 app.use(notFound);

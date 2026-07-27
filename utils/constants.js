@@ -48,7 +48,9 @@ const WALLET_CATEGORIES = {
   SUBSCRIPTION: 'subscription',
   REFUND: 'refund',
   ADJUSTMENT: 'adjustment',
-  COMMISSION: 'commission'
+  COMMISSION: 'commission',
+  DEPOSIT: 'deposit',
+  REGISTRATION: 'registration'
 };
 
 const TRANSACTION_TYPES = {

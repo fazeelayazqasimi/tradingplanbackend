@@ -102,22 +102,22 @@ exports.register = async (req, res, next) => {
       console.error('[REGISTER] UserRank creation error:', e.message);
     }
 
-    // Free registration bonus if enabled
-    try {
-      const bonusEnabled = await Setting.getByKey('free_registration_bonus_enabled', false);
-      const bonusAmount = await Setting.getByKey('free_registration_bonus_amount', 0);
-      if (bonusEnabled && bonusAmount > 0 && referredBy) {
+    // Free registration bonus: hardcoded $1 + increment per count
+    if (referredBy) {
+      try {
+        const freeRegCount = await Referral.countDocuments({ referrerId: referredBy, status: 'pending' });
+        const bonusAmount = 1 + freeRegCount;
         await creditWallet(referredBy, {
           amount: bonusAmount,
           category: 'bonus',
-          description: `Free registration bonus for referring ${userFirstName} ${userLastName}`,
+          description: `Free registration bonus (#${freeRegCount + 1}) for referring ${userFirstName} ${userLastName}`,
           referenceModel: 'User',
           referenceId: user._id,
           walletType: 'funding',
         });
+      } catch (e) {
+        console.error('[REGISTER] free registration bonus error:', e.message);
       }
-    } catch (e) {
-      console.error('[REGISTER] free registration bonus error:', e.message);
     }
 
     // Process referral commission if referred
@@ -127,24 +127,12 @@ exports.register = async (req, res, next) => {
         referredUserId: user._id,
         referralCode,
         status: 'pending',
+        level: 1,
+        notes: 'Free registration - pending activation',
       });
       const referrer = await User.findById(referredBy);
       if (referrer) {
         sendReferralSignupEmail(referrer, user).catch((e) => console.error('[EMAIL] sendReferralSignupEmail:', e.message));
-        try {
-          const signupBonus = await Setting.getByKey('referral_signup_bonus', 0);
-          if (signupBonus > 0) {
-            await creditWallet(referredBy, {
-              amount: signupBonus,
-              category: 'bonus',
-              description: `Referral signup bonus for referring ${userFirstName} ${userLastName || ''}`,
-              referenceModel: 'User',
-              referenceId: user._id,
-            });
-          }
-        } catch (e) {
-          console.error('[REFERRAL] signup bonus error:', e.message);
-        }
       }
     }
 
