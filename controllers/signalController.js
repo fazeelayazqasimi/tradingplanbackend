@@ -1,5 +1,6 @@
 const Signal = require('../models/Signal');
 const User = require('../models/User');
+const Notification = require('../models/Notification');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions } = require('../helpers/pagination');
 const { sendSignalPublishedEmail } = require('../services/emailService');
@@ -41,9 +42,20 @@ exports.createSignal = async (req, res, next) => {
     const signal = await Signal.create({ ...req.body, userId: req.user._id });
     if (signal.isPublished) {
       try {
-        const students = await User.find({ role: 'student', isActive: true }).select('email firstName');
-        if (students.length > 0) sendSignalPublishedEmail(students, signal);
-      } catch (e) { console.error('[EMAIL] sendSignalPublishedEmail:', e.message); }
+        const students = await User.find({ role: 'student', isActive: true }).select('email firstName _id');
+        if (students.length > 0) {
+          sendSignalPublishedEmail(students, signal);
+          const notifications = students.map(s => ({
+            userId: s._id,
+            type: 'signal',
+            title: `New Signal: ${signal.symbol} ${signal.action}`,
+            message: `${signal.action} ${signal.side} at ${signal.openPrice} on ${signal.symbol}`,
+            link: '/student/signals',
+            relatedId: signal._id,
+          }));
+          await Notification.insertMany(notifications);
+        }
+      } catch (e) { console.error('[PUBLISH] Signal notification error:', e.message); }
     }
     sendSuccess(res, signal, 'Signal created', 201);
   } catch (error) {
@@ -53,15 +65,29 @@ exports.createSignal = async (req, res, next) => {
 
 exports.updateSignal = async (req, res, next) => {
   try {
-    const signal = await Signal.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
-    if (!signal) return sendError(res, 'Signal not found', 404);
-    if (req.body.isPublished && !signal.isPublished) {
+    const existing = await Signal.findById(req.params.id);
+    if (!existing) return sendError(res, 'Signal not found', 404);
+    const wasPublished = existing.isPublished;
+    Object.assign(existing, req.body);
+    await existing.save();
+    if (req.body.isPublished === true && !wasPublished) {
       try {
-        const students = await User.find({ role: 'student', isActive: true }).select('email firstName');
-        if (students.length > 0) sendSignalPublishedEmail(students, signal);
-      } catch (e) { console.error('[EMAIL] sendSignalPublishedEmail:', e.message); }
+        const students = await User.find({ role: 'student', isActive: true }).select('email firstName _id');
+        if (students.length > 0) {
+          sendSignalPublishedEmail(students, existing);
+          const notifications = students.map(s => ({
+            userId: s._id,
+            type: 'signal',
+            title: `New Signal: ${existing.symbol} ${existing.action}`,
+            message: `${existing.action} ${existing.side} at ${existing.openPrice} on ${existing.symbol}`,
+            link: '/student/signals',
+            relatedId: existing._id,
+          }));
+          await Notification.insertMany(notifications);
+        }
+      } catch (e) { console.error('[PUBLISH] Signal notification error:', e.message); }
     }
-    sendSuccess(res, signal, 'Signal updated');
+    sendSuccess(res, existing, 'Signal updated');
   } catch (error) {
     next(error);
   }

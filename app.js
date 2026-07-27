@@ -92,6 +92,8 @@ app.use('/api/admin', require('./routes/admin'));
 app.use('/api/support', require('./routes/support'));
 app.use('/api/contact', require('./routes/contact'));
 app.use('/api/faqs', require('./routes/faqs'));
+app.use('/api/market-overview', require('./routes/marketOverview'));
+app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/page-content', require('./routes/pageContent'));
 app.use('/api/market', require('./routes/market'));
 app.use('/api/payments', require('./routes/payments'));
