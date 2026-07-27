@@ -51,7 +51,6 @@ const pageContentSchema = new mongoose.Schema({
 
 pageContentSchema.index({ page: 1 });
 pageContentSchema.index({ section: 1 });
-pageContentSchema.index({ key: 1 });
 pageContentSchema.index({ page: 1, section: 1, order: 1 });
 
 module.exports = mongoose.model('PageContent', pageContentSchema);

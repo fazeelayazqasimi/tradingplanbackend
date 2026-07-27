@@ -233,6 +233,7 @@ exports.activateWithPin = async (req, res, next) => {
 
     coupon.usedCount += 1;
     coupon.usedBy.push(req.user._id);
+    coupon.isActive = false;
     await coupon.save();
 
     const amount = PIN_AMOUNT;

@@ -3,6 +3,7 @@ const User = require('../models/User');
 const WalletTransaction = require('../models/WalletTransaction');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions } = require('../helpers/pagination');
+const { processReferralCommission } = require('../services/referralService');
 
 exports.getMyReferralCode = async (req, res, next) => {
   try {
@@ -11,8 +12,22 @@ exports.getMyReferralCode = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+async function processPendingForUser(userId) {
+  try {
+    const pending = await Referral.find({ referrerId: userId, status: 'pending' }).populate('referredUserId', 'isApproved').lean();
+    for (const ref of pending) {
+      if (ref.referredUserId && ref.referredUserId.isApproved) {
+        await processReferralCommission(ref.referredUserId._id, 120, 'subscription');
+      }
+    }
+  } catch (e) {
+    console.error('[REFERRAL] processPendingForUser error:', e.message);
+  }
+}
+
 exports.getReferralStats = async (req, res, next) => {
   try {
+    await processPendingForUser(req.user._id);
     const directCount = await Referral.countDocuments({ referrerId: req.user._id, level: 1 });
     const indirectCount = await Referral.countDocuments({ referrerId: req.user._id, level: { $gte: 2 } });
     const earnings = await Referral.aggregate([
@@ -44,12 +59,13 @@ exports.getReferralStats = async (req, res, next) => {
 };
 
 async function buildTree(userId, currentLevel = 1, maxDepth = 10) {
-  if (currentLevel > maxDepth) return [];
+  if (currentLevel > maxDepth || !userId) return [];
   const referrals = await Referral.find({ referrerId: userId, level: 1 })
     .populate('referredUserId', 'firstName lastName email createdAt')
     .lean();
   const nodes = [];
   for (const ref of referrals) {
+    if (!ref.referredUserId) continue;
     const children = await buildTree(ref.referredUserId._id, currentLevel + 1, maxDepth);
     nodes.push({
       _id: ref._id,
@@ -68,6 +84,7 @@ async function buildTree(userId, currentLevel = 1, maxDepth = 10) {
 
 exports.getReferralTree = async (req, res, next) => {
   try {
+    await processPendingForUser(req.user._id);
     const tree = await buildTree(req.user._id);
 
     const allRefs = await Referral.find({ referrerId: req.user._id })

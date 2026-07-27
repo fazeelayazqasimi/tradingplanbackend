@@ -82,6 +82,7 @@ exports.generateCoupons = async (req, res, next) => {
         value: couponValue,
         description: description || (commission === false ? 'No commission PIN' : 'With commission PIN'),
         isActive: true,
+        usageLimit: 1,
         createdBy: req.user._id
       });
       codes.push(coupon);
