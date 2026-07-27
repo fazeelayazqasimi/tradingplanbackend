@@ -19,26 +19,11 @@ exports.requestWithdrawal = async (req, res, next) => {
     const wallet = await Wallet.findOne({ userId: req.user._id, type: 'main' });
     if (!wallet || wallet.availableBalance < amount) return sendError(res, 'Insufficient balance in main wallet', 400);
 
-    wallet.availableBalance -= amount;
-    wallet.pendingBalance += amount;
-    await wallet.save();
-
-    await WalletTransaction.create({
-      walletId: wallet._id,
-      userId: req.user._id,
-      type: 'debit',
-      category: 'withdrawal',
-      amount,
-      balanceAfter: wallet.availableBalance,
-      description: `USDT BEP20 withdrawal request`,
-      status: 'pending',
-    });
-
     const paymentDetails = { walletAddress: walletAddress.trim(), cryptocurrency: cryptocurrency || 'USDT' };
 
     const withdrawal = await Withdrawal.create({
       userId: req.user._id,
-      amount,
+      amount: parseFloat(amount),
       paymentMethod: method,
       cryptocurrency: 'USDT',
       network: 'BEP20',
@@ -46,39 +31,7 @@ exports.requestWithdrawal = async (req, res, next) => {
       status: 'pending',
     });
 
-    // Auto-approve and initiate payout via CoinPayment API
-    try {
-      const payout = await createWithdrawal({
-        amount,
-        coinType: 'USDT_BEP20',
-        address: walletAddress.trim(),
-        userId: req.user._id,
-        paymentRef: withdrawal._id.toString(),
-        autoConfirm: true,
-      });
-
-      withdrawal.status = 'processing';
-      withdrawal.coinPaymentsTxnId = payout.txnId;
-      withdrawal.processedAt = new Date();
-      await withdrawal.save();
-
-      wallet.pendingBalance -= amount;
-      wallet.totalWithdrawn = (wallet.totalWithdrawn || 0) + amount;
-      wallet.lastWithdrawalAt = new Date();
-      await wallet.save();
-
-      sendSuccess(res, withdrawal, `Withdrawal successful! USDT BEP20 payout initiated. Txn ID: ${payout.txnId}`, 201);
-    } catch (payoutError) {
-      console.error('[CoinPayments] Auto-payout failed:', payoutError.message);
-      withdrawal.status = 'approved';
-      withdrawal.payoutError = payoutError.message;
-      await withdrawal.save();
-
-      wallet.pendingBalance -= amount;
-      await wallet.save();
-
-      sendSuccess(res, withdrawal, `Withdrawal approved. Payout may be processed manually.`, 201);
-    }
+    sendSuccess(res, withdrawal, 'Withdrawal request submitted. Admin will verify and process.', 201);
   } catch (error) { next(error); }
 };
 
@@ -98,6 +51,10 @@ exports.approveWithdrawal = async (req, res, next) => {
   try {
     const withdrawal = await Withdrawal.findById(req.params.id);
     if (!withdrawal) return sendError(res, 'Not found', 404);
+    if (withdrawal.status !== 'pending') return sendError(res, 'Withdrawal already processed', 400);
+
+    const wallet = await Wallet.findOne({ userId: withdrawal.userId, type: 'main' });
+    if (!wallet || wallet.availableBalance < withdrawal.amount) return sendError(res, 'Insufficient balance', 400);
 
     const isCrypto = withdrawal.paymentMethod === 'crypto' || withdrawal.paymentMethod === 'usdt_bep20';
 
@@ -106,8 +63,23 @@ exports.approveWithdrawal = async (req, res, next) => {
     withdrawal.processedAt = new Date();
     await withdrawal.save();
 
-    const wallet = await Wallet.findOne({ userId: withdrawal.userId });
-    if (wallet) { wallet.pendingBalance -= withdrawal.amount; await wallet.save(); }
+    wallet.availableBalance -= withdrawal.amount;
+    wallet.totalWithdrawn = (wallet.totalWithdrawn || 0) + withdrawal.amount;
+    wallet.lastWithdrawalAt = new Date();
+    await wallet.save();
+
+    await WalletTransaction.create({
+      walletId: wallet._id,
+      userId: withdrawal.userId,
+      type: 'debit',
+      category: 'withdrawal',
+      amount: withdrawal.amount,
+      balanceAfter: wallet.availableBalance,
+      description: `Withdrawal approved - ${withdrawal.amount}`,
+      referenceId: withdrawal._id,
+      referenceModel: 'Withdrawal',
+      status: 'completed',
+    });
 
     if (isCrypto && withdrawal.paymentDetails?.walletAddress) {
       try {
@@ -135,18 +107,10 @@ exports.approveWithdrawal = async (req, res, next) => {
         return;
       } catch (payoutError) {
         console.error('[CoinPayments] Payout failed:', payoutError.message);
-        withdrawal.status = 'approved';
         withdrawal.payoutError = payoutError.message;
-        withdrawal.coinPaymentsTxnId = null;
         await withdrawal.save();
 
-        if (wallet) {
-          wallet.availableBalance += withdrawal.amount;
-          wallet.pendingBalance += withdrawal.amount;
-          await wallet.save();
-        }
-
-        sendError(res, `Withdrawal approved but crypto payout failed: ${payoutError.message}. Wallet balance restored.`, 500);
+        sendSuccess(res, withdrawal, `Withdrawal approved. Payout failed: ${payoutError.message}. Process manually.`);
         return;
       }
     }
@@ -161,10 +125,8 @@ exports.rejectWithdrawal = async (req, res, next) => {
   try {
     const withdrawal = await Withdrawal.findById(req.params.id);
     if (!withdrawal) return sendError(res, 'Not found', 404);
-    const wallet = await Wallet.findOne({ userId: withdrawal.userId });
-    if (wallet) { wallet.pendingBalance -= withdrawal.amount; wallet.availableBalance += withdrawal.amount; await wallet.save(); }
     withdrawal.status = 'rejected';
-    withdrawal.adminNote = req.body.adminNote;
+    withdrawal.adminNote = req.body.adminNote || '';
     withdrawal.processedBy = req.user._id;
     await withdrawal.save();
     sendSuccess(res, withdrawal, 'Withdrawal rejected');

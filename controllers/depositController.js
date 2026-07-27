@@ -8,37 +8,18 @@ const { createCoinPayment, SUPPORTED_COINS } = require('../services/coinPaymentS
 
 exports.createDeposit = async (req, res, next) => {
   try {
-    const { amount, coinType } = req.body;
+    const { amount, paymentMethod, screenshot } = req.body;
     if (!amount || amount <= 0) return sendError(res, 'Valid amount is required', 400);
-    const coin = coinType || 'USDT_BEP20';
-    if (!SUPPORTED_COINS[coin]) return sendError(res, 'Unsupported coin type', 400);
-
-    const user = await User.findById(req.user._id).lean();
-    const coinPayment = await createCoinPayment({
-      userId: req.user._id,
-      amount,
-      coinType: coin,
-      userName: `${user.firstName} ${user.lastName}`.trim() || 'User',
-      userEmail: user.email,
-    });
 
     const deposit = await Deposit.create({
       userId: req.user._id,
-      amount,
-      paymentMethod: coin.toLowerCase(),
-      coinType: coin,
+      amount: parseFloat(amount),
+      paymentMethod: paymentMethod || 'usdt_bep20',
       status: 'pending',
-      coinPaymentRef: coinPayment.payment.paymentRef,
-      coinPaymentsTxnId: coinPayment.payment.txnId,
-      depositAddress: coinPayment.payment.depositAddress,
-      qrCodeData: coinPayment.payment.qrCodeData,
-      expiresAt: coinPayment.payment.expiresAt,
+      screenshot: screenshot || null,
     });
 
-    sendSuccess(res, {
-      deposit,
-      payment: coinPayment.payment,
-    }, 'Deposit initiated. Send funds to the provided address.', 201);
+    sendSuccess(res, deposit, 'Deposit request submitted. Admin will verify and approve.', 201);
   } catch (error) { next(error); }
 };
 
