@@ -21,17 +21,51 @@ exports.requestWithdrawal = async (req, res, next) => {
 
     const paymentDetails = { walletAddress: walletAddress.trim(), cryptocurrency: cryptocurrency || 'USDT' };
 
-    const withdrawal = await Withdrawal.create({
-      userId: req.user._id,
-      amount: parseFloat(amount),
-      paymentMethod: method,
-      cryptocurrency: 'USDT',
-      network: 'BEP20',
-      paymentDetails,
-      status: 'pending',
+    wallet.availableBalance -= amount;
+    wallet.totalWithdrawn = (wallet.totalWithdrawn || 0) + amount;
+    wallet.lastWithdrawalAt = new Date();
+    await wallet.save();
+
+    await WalletTransaction.create({
+      walletId: wallet._id, userId: req.user._id,
+      type: 'debit', category: 'withdrawal', amount,
+      balanceAfter: wallet.availableBalance,
+      description: `Withdrawal initiated - ${amount} (USDT BEP20)`,
+      referenceId: paymentDetails.walletAddress.slice(-8),
+      referenceModel: 'Withdrawal', status: 'completed',
     });
 
-    sendSuccess(res, withdrawal, 'Withdrawal request submitted. Admin will verify and process.', 201);
+    const withdrawal = await Withdrawal.create({
+      userId: req.user._id, amount,
+      paymentMethod: method, cryptocurrency: 'USDT', network: 'BEP20',
+      paymentDetails, status: 'processing', coinPaymentsTxnId: null,
+    });
+
+    try {
+      const payout = await createWithdrawal({
+        amount, coinType: 'USDT_BEP20',
+        address: walletAddress.trim(),
+        userId: req.user._id,
+        paymentRef: withdrawal._id.toString(),
+        autoConfirm: true,
+      });
+      withdrawal.coinPaymentsTxnId = payout.txnId;
+      withdrawal.status = 'processing';
+      await withdrawal.save();
+
+      const user = await User.findById(req.user._id);
+      if (user) sendWithdrawalApprovedEmail(user, amount).catch((e) => console.error('[EMAIL] sendWithdrawalApprovedEmail:', e.message));
+      return sendSuccess(res, withdrawal, 'Withdrawal initiated. Crypto payout processing.', 201);
+    } catch ( payoutErr ) {
+      console.error('[CoinPayments] Withdrawal payout failed:', payoutErr.message);
+      withdrawal.payoutError = payoutErr.message;
+      withdrawal.status = 'failed';
+      wallet.availableBalance += amount;
+      wallet.totalWithdrawn -= amount;
+      await wallet.save();
+      await withdrawal.save();
+      return sendError(res, `Payout failed: ${payoutErr.message}. Your balance has been restored.`, 500);
+    }
   } catch (error) { next(error); }
 };
 
