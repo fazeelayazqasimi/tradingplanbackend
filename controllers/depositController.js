@@ -46,8 +46,8 @@ exports.createDeposit = async (req, res, next) => {
     }
 
     try {
-      let wallet = await Wallet.findOne({ userId: deposit.userId, type: 'funding' });
-      if (!wallet) wallet = await Wallet.create({ userId: deposit.userId, type: 'funding' });
+      let wallet = await Wallet.findOne({ userId: deposit.userId, type: 'main' });
+      if (!wallet) wallet = await Wallet.create({ userId: deposit.userId, type: 'main' });
       wallet.availableBalance += deposit.amount;
       wallet.totalEarned += deposit.amount;
       wallet.lastCreditAt = new Date();
@@ -57,7 +57,7 @@ exports.createDeposit = async (req, res, next) => {
         walletId: wallet._id, userId: deposit.userId,
         type: 'credit', category: 'deposit', amount: deposit.amount,
         balanceAfter: wallet.availableBalance,
-        description: `Deposit approved automatically - ${deposit.amount} (funding wallet)`,
+        description: `Deposit approved automatically - ${deposit.amount} (main wallet)`,
         referenceId: deposit._id, referenceModel: 'Deposit', status: 'completed',
       });
     } catch (walletErr) {
@@ -166,7 +166,7 @@ exports.approveDeposit = async (req, res, next) => {
     if (req.body.adminNote) deposit.adminNote = req.body.adminNote;
     await deposit.save();
 
-    const walletType = deposit.walletType || 'funding';
+    const walletType = deposit.walletType || 'main';
     let wallet = await Wallet.findOne({ userId: deposit.userId, type: walletType });
     if (!wallet) wallet = await Wallet.create({ userId: deposit.userId, type: walletType });
 

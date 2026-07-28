@@ -60,7 +60,7 @@ const depositSchema = new mongoose.Schema({
   walletType: {
     type: String,
     enum: ['main', 'funding', 'ib'],
-    default: 'funding'
+    default: 'main'
   },
   status: {
     type: String,

@@ -62,7 +62,7 @@ const handleDepositIPN = async (ipnData) => {
       deposit.processedAt = new Date();
       await deposit.save();
 
-      const walletType = deposit.walletType || 'funding';
+      const walletType = deposit.walletType || 'main';
       let wallet = await Wallet.findOne({ userId: deposit.userId, type: walletType });
       if (!wallet) {
         wallet = await Wallet.create({ userId: deposit.userId, type: walletType });
