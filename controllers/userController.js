@@ -28,8 +28,20 @@ exports.getUsers = async (req, res, next) => {
     if (isActive !== undefined) filter.isActive = isActive === 'true';
 
     const total = await User.countDocuments(filter);
-    const users = await User.find(filter).select('-password').sort(sort).skip((page - 1) * limit).limit(limit);
-    sendPaginated(res, users, total, page, limit);
+    const users = await User.find(filter).select('-password').sort(sort).skip((page - 1) * limit).limit(limit).lean();
+    const userIds = users.map(u => u._id);
+    const [wallets, userRanks] = await Promise.all([
+      Wallet.find({ userId: { $in: userIds } }).lean(),
+      UserRank.find({ userId: { $in: userIds } }).populate('currentRankId').lean(),
+    ]);
+    const walletMap = wallets.reduce((m, w) => { m[w.userId.toString()] = w; return m; }, {});
+    const rankMap = userRanks.reduce((m, r) => { m[r.userId.toString()] = r; return m; }, {});
+    const enriched = users.map(u => ({
+      ...u,
+      rankName: rankMap[u._id.toString()]?.currentRankId?.name || 'N/A',
+      totalEarnings: walletMap[u._id.toString()]?.totalEarned || 0,
+    }));
+    sendPaginated(res, enriched, total, page, limit);
   } catch (error) {
     next(error);
   }

@@ -12,6 +12,7 @@ const { sendSuccess, sendError } = require('../helpers/response');
 const { sendWelcomeEmail, sendVerificationEmail, sendPasswordResetEmail, sendReferralSignupEmail, sendOTPEmail } = require('../services/emailService');
 const { generateReferralCode, processReferralCommission } = require('../services/referralService');
 const { creditWallet } = require('../services/walletService');
+const { sendSMS } = require('../services/smsService');
 
 // Helper: generate JWT tokens
 const generateToken = (userId) => {
@@ -410,9 +411,8 @@ exports.sendPhoneOTP = async (req, res, next) => {
     if (!phone) return sendError(res, 'Phone number is required', 400);
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expires = new Date(Date.now() + 60 * 1000);
+    const expires = new Date(Date.now() + 300 * 1000);
 
-    // Store OTP against phone number
     const TempOTP = require('../models/TempOTP');
     await TempOTP.findOneAndUpdate(
       { email: `phone:${phone}` },
@@ -420,7 +420,11 @@ exports.sendPhoneOTP = async (req, res, next) => {
       { upsert: true, new: true }
     );
 
-    console.log(`[PHONE OTP] ${phone}: ${otp}`);
+    const brandName = 'The4xHub';
+    const message = `Your ${brandName} verification code is: ${otp}. Valid for 5 minutes.`;
+
+    await sendSMS(phone, message);
+
     sendSuccess(res, null, 'OTP sent to your phone');
   } catch (error) {
     next(error);

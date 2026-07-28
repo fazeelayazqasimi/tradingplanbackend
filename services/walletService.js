@@ -94,6 +94,9 @@ const debitWallet = async (userId, { amount, category, description, referenceId,
     }
 
     wallet.availableBalance -= amount;
+    if (category === 'withdrawal') {
+      wallet.totalWithdrawn += amount;
+    }
     wallet.lastDebitAt = new Date();
     await wallet.save({ session });
 

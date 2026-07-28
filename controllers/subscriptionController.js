@@ -333,10 +333,12 @@ exports.activateByUpline = async (req, res, next) => {
     const discountedAmount = Math.round(amount * (100 - discountPercent) / 100);
 
     const fundingWallet = await Wallet.findOne({ userId: req.user._id, type: 'funding' });
+    const fundingPercent = await Setting.getByKey('funding_wallet_usage_percent', 20);
+    const maxFundingUsage = (discountedAmount * fundingPercent) / 100;
     let fundingUsed = 0;
 
     if (fundingWallet && fundingWallet.availableBalance > 0) {
-      fundingUsed = Math.min(fundingWallet.availableBalance, discountedAmount);
+      fundingUsed = Math.min(fundingWallet.availableBalance, maxFundingUsage);
       if (fundingUsed > 0) {
         await debitWallet(req.user._id, {
           amount: fundingUsed,

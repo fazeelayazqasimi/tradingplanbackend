@@ -70,13 +70,17 @@ exports.getWalletStats = async (req, res, next) => {
       { $group: { _id: null, total: { $sum: '$amount' } } },
     ]);
     const totalEarningsExcludingDeposits = totalEarnedAll - (depositTotal[0]?.total || 0);
+    const expensesByCategory = expenses.reduce((a, c) => { a[c._id] = c.total; return a; }, {});
+    const cashWithdrawals = expensesByCategory['withdrawal'] || 0;
+    const rewardCreditsUsed = (expensesByCategory['subscription'] || 0) + (expensesByCategory['purchase'] || 0);
     sendSuccess(res, {
       totalEarned: Math.max(0, totalEarningsExcludingDeposits),
-      totalWithdrawn: totalWithdrawnAll,
+      totalWithdrawn: cashWithdrawals,
+      totalRedeemed: rewardCreditsUsed,
       available: availableAll,
       pending: pendingAll,
       byCategory: byCategory.reduce((a, c) => { a[c._id] = c.total; return a; }, {}),
-      expenses: expenses.reduce((a, c) => { a[c._id] = c.total; return a; }, {})
+      expenses: expensesByCategory
     });
   } catch (error) { next(error); }
 };

@@ -9,7 +9,8 @@ const { processReferralCommission } = require('../services/referralService');
 exports.getMyReferralCode = async (req, res, next) => {
   try {
     const user = await User.findById(req.user._id).select('referralCode');
-    sendSuccess(res, { referralCode: user.referralCode, referralLink: `${process.env.FRONTEND_URL}/register?ref=${user.referralCode}` });
+    const frontendUrl = (process.env.FRONTEND_URL || '').split(',')[0].trim() || 'https://the4xhub.com';
+    sendSuccess(res, { referralCode: user.referralCode, referralLink: `${frontendUrl}/register?ref=${user.referralCode}` });
   } catch (error) { next(error); }
 };
 
