@@ -72,11 +72,20 @@ exports.getWalletStats = async (req, res, next) => {
     const totalEarningsExcludingDeposits = totalEarnedAll - (depositTotal[0]?.total || 0);
     const expensesByCategory = expenses.reduce((a, c) => { a[c._id] = c.total; return a; }, {});
     const cashWithdrawals = expensesByCategory['withdrawal'] || 0;
-    const rewardCreditsUsed = (expensesByCategory['subscription'] || 0) + (expensesByCategory['purchase'] || 0);
+    const rewardCreditsFunding = await WalletTransaction.aggregate([
+      { $match: { userId: req.user._id, type: 'debit', category: 'subscription' } },
+      { $lookup: { from: 'wallets', localField: 'walletId', foreignField: '_id', as: 'wallet' } },
+      { $unwind: '$wallet' },
+      { $match: { 'wallet.type': 'funding' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]);
+    const rewardCreditsUsed = rewardCreditsFunding[0]?.total || 0;
+    const totalRedeemed = (expensesByCategory['subscription'] || 0) + (expensesByCategory['purchase'] || 0);
     sendSuccess(res, {
       totalEarned: Math.max(0, totalEarningsExcludingDeposits),
       totalWithdrawn: cashWithdrawals,
-      totalRedeemed: rewardCreditsUsed,
+      rewardCreditsUsed,
+      totalRedeemed,
       available: availableAll,
       pending: pendingAll,
       byCategory: byCategory.reduce((a, c) => { a[c._id] = c.total; return a; }, {}),

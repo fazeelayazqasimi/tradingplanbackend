@@ -18,9 +18,9 @@ async function processPendingForUser(userId) {
   try {
     const setting = await Setting.findOne({ key: 'membership_price' });
     const amount = (setting && Number(setting.value)) || 120;
-    const pending = await Referral.find({ referrerId: userId, status: 'pending' }).populate('referredUserId', 'isApproved').lean();
+    const pending = await Referral.find({ referrerId: userId, status: 'pending' }).populate('referredUserId', 'isApproved subscriptionStatus').lean();
     for (const ref of pending) {
-      if (ref.referredUserId && ref.referredUserId.isApproved) {
+      if (ref.referredUserId && (ref.referredUserId.isApproved || ref.referredUserId.subscriptionStatus === 'active')) {
         await processReferralCommission(ref.referredUserId._id, amount, 'subscription');
       }
     }
