@@ -16,8 +16,27 @@ const getPlanDays = async (plan) => {
   return (setting && Number(setting.value)) || 365;
 };
 
+const autoExpireSubscriptions = async () => {
+  try {
+    const now = new Date();
+    const expired = await Subscription.updateMany(
+      { status: 'active', endDate: { $lt: now } },
+      { $set: { status: 'expired' } }
+    );
+    if (expired.modifiedCount > 0) {
+      const expiredSubs = await Subscription.find({ status: 'expired', endDate: { $lt: now } }).limit(expired.modifiedCount);
+      for (const sub of expiredSubs) {
+        await User.findByIdAndUpdate(sub.userId, { subscriptionStatus: 'expired', isApproved: false });
+      }
+    }
+  } catch (e) {
+    console.error('[SUB] autoExpireSubscriptions error:', e.message);
+  }
+};
+
 exports.getSubscriptions = async (req, res, next) => {
   try {
+    await autoExpireSubscriptions();
     const { page, limit, sort } = getPaginationOptions(req.query);
     const status = req.query.status;
     const filter = req.user.role === 'admin' ? {} : { userId: req.user._id };
@@ -30,6 +49,7 @@ exports.getSubscriptions = async (req, res, next) => {
 
 exports.getMySubscription = async (req, res, next) => {
   try {
+    await autoExpireSubscriptions();
     const sub = await Subscription.findOne({ userId: req.user._id, status: { $in: ['active', 'pending'] } }).sort({ createdAt: -1 });
     sendSuccess(res, sub);
   } catch (error) { next(error); }
@@ -214,13 +234,12 @@ const activateUserAndCreateSubscription = async (userId, amount, paymentMethod, 
   return sub;
 };
 
-const PIN_AMOUNT = 120;
-
 exports.getActivationInfo = async (req, res, next) => {
   try {
     const membershipPrice = await Setting.getByKey('membership_price', 100);
     const uplineDiscount = await Setting.getByKey('upline_activation_discount', 20);
-    sendSuccess(res, { membershipPrice: Number(membershipPrice), uplineActivationDiscount: Number(uplineDiscount) });
+    const fundingPercent = await Setting.getByKey('funding_wallet_usage_percent', 20);
+    sendSuccess(res, { membershipPrice: Number(membershipPrice), uplineActivationDiscount: Number(uplineDiscount), fundingPercent: Number(fundingPercent) });
   } catch (error) { next(error); }
 };
 
@@ -244,13 +263,13 @@ exports.activateWithPin = async (req, res, next) => {
     coupon.isActive = false;
     await coupon.save();
 
-    const amount = PIN_AMOUNT;
+    const amount = await getActivationAmount();
     const sub = await activateUserAndCreateSubscription(req.user._id, amount, 'pin', { couponCode: coupon.code, couponId: coupon._id });
 
     const user = await User.findById(req.user._id);
     sendAccountApprovedEmail(user).catch((e) => console.error('[EMAIL] sendAccountApprovedEmail:', e.message));
 
-    sendSuccess(res, { subscription: sub, coupon: { code: coupon.code, value: PIN_AMOUNT } }, 'Account activated successfully via PIN code', 201);
+    sendSuccess(res, { subscription: sub, coupon: { code: coupon.code, value: amount } }, 'Account activated successfully via PIN code', 201);
   } catch (error) { next(error); }
 };
 
