@@ -39,7 +39,7 @@ exports.register = async (req, res, next) => {
     const { firstName, lastName, name, email, password, phone, country, referralCode } = req.body;
 
     const userFirstName = firstName || (name ? name.trim().split(' ')[0] : '');
-    const userLastName = lastName || (name && name.trim().includes(' ') ? name.trim().split(' ').slice(1).join(' ') : '');
+    const userLastName = lastName || (name && name.trim().includes(' ') ? name.trim().split(' ').slice(1).join(' ') : userFirstName);
 
     if (!userFirstName) {
       return sendError(res, 'First name is required', 400);

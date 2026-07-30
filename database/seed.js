@@ -42,39 +42,57 @@ const seed = async () => {
     const ranks = await Rank.insertMany([
       {
         name: 'D1', slug: 'd1',
-        minDirectReferrals: 0, minTeamSize: 0, minAtLeast: 0, minAtLeastRank: null,
-        activationGain: 30, quantification: 4, indirectIncome: 0,
-        minRevenue: 0, perks: ['Base member'], order: 1, isActive: true
+        minReferrals: 0, minRevenue: 0, commissionPercent: 0,
+        minRequiredRank: null, minRequiredRankCount: 0, minTeamMembers: 0,
+        activationGain: 30, quantification: 4, indirectIncome: 0, bonusPerReferral: 0,
+        profitSharePercent: 0, copyTradingSharePercent: 0,
+        perks: ['Base member'], order: 1, isActive: true,
+        color: '#6B7280', description: 'Entry level rank for new members'
       },
       {
         name: 'D2', slug: 'd2',
-        minDirectReferrals: 3, minTeamSize: 20, minAtLeast: 0, minAtLeastRank: null,
-        activationGain: 40, quantification: 6, indirectIncome: 10,
-        minRevenue: 300, perks: ['Direct Referral Bonus', 'Copy Trading Share'], order: 2, isActive: true
+        minReferrals: 3, minRevenue: 300, commissionPercent: 10,
+        minRequiredRank: null, minRequiredRankCount: 0, minTeamMembers: 20,
+        activationGain: 40, quantification: 6, indirectIncome: 10, bonusPerReferral: 10,
+        profitSharePercent: 5, copyTradingSharePercent: 10,
+        perks: ['Direct Referral Bonus', 'Copy Trading Share'], order: 2, isActive: true,
+        color: '#3B82F6', description: 'Active trader with growing team'
       },
       {
         name: 'D3', slug: 'd3',
-        minDirectReferrals: 5, minTeamSize: 100, minAtLeast: 3, minAtLeastRank: 'D2',
-        activationGain: 50, quantification: 8, indirectIncome: 20,
-        minRevenue: 1000, perks: ['Priority Support'], order: 3, isActive: true
+        minReferrals: 5, minRevenue: 1000, commissionPercent: 15,
+        minRequiredRank: 'D2', minRequiredRankCount: 3, minTeamMembers: 100,
+        activationGain: 50, quantification: 8, indirectIncome: 20, bonusPerReferral: 15,
+        profitSharePercent: 10, copyTradingSharePercent: 15,
+        perks: ['Priority Support'], order: 3, isActive: true,
+        color: '#10B981', description: 'Experienced leader with qualified team'
       },
       {
         name: 'D4', slug: 'd4',
-        minDirectReferrals: 8, minTeamSize: 300, minAtLeast: 3, minAtLeastRank: 'D3',
-        activationGain: 60, quantification: 10, indirectIncome: 30,
-        minRevenue: 2500, perks: ['VIP Support', 'Exclusive Signals'], order: 4, isActive: true
+        minReferrals: 8, minRevenue: 2500, commissionPercent: 20,
+        minRequiredRank: 'D3', minRequiredRankCount: 3, minTeamMembers: 300,
+        activationGain: 60, quantification: 10, indirectIncome: 30, bonusPerReferral: 20,
+        profitSharePercent: 15, copyTradingSharePercent: 20,
+        perks: ['VIP Support', 'Exclusive Signals'], order: 4, isActive: true,
+        color: '#F59E0B', description: 'Senior leader with large organization'
       },
       {
         name: 'D5', slug: 'd5',
-        minDirectReferrals: 12, minTeamSize: 800, minAtLeast: 3, minAtLeastRank: 'D4',
-        activationGain: 65, quantification: 11, indirectIncome: 35,
-        minRevenue: 5000, perks: ['Personal Mentor', 'Custom Strategies'], order: 5, isActive: true
+        minReferrals: 12, minRevenue: 5000, commissionPercent: 25,
+        minRequiredRank: 'D4', minRequiredRankCount: 3, minTeamMembers: 800,
+        activationGain: 65, quantification: 11, indirectIncome: 35, bonusPerReferral: 25,
+        profitSharePercent: 20, copyTradingSharePercent: 25,
+        perks: ['Personal Mentor', 'Custom Strategies'], order: 5, isActive: true,
+        color: '#EF4444', description: 'Top tier leader with elite team'
       },
       {
         name: 'D6', slug: 'd6',
-        minDirectReferrals: 20, minTeamSize: 1500, minAtLeast: 3, minAtLeastRank: 'D5',
-        activationGain: 70, quantification: 12, indirectIncome: 40,
-        minRevenue: 10000, perks: ['Elite Mentorship', 'Revenue Sharing'], order: 6, isActive: true
+        minReferrals: 20, minRevenue: 10000, commissionPercent: 30,
+        minRequiredRank: 'D5', minRequiredRankCount: 3, minTeamMembers: 1500,
+        activationGain: 70, quantification: 12, indirectIncome: 40, bonusPerReferral: 30,
+        profitSharePercent: 25, copyTradingSharePercent: 30,
+        perks: ['Elite Mentorship', 'Revenue Sharing'], order: 6, isActive: true,
+        color: '#8B5CF6', description: 'Highest rank - master leader'
       },
     ]);
     console.log('Ranks created:', ranks.length);
