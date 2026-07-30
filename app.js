@@ -30,12 +30,20 @@ const app = express();
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(cors({
   origin: function (origin, callback) {
-    const defaultAllowed = ['https://the4xhub.com', 'https://tradingplanfrontend.vercel.app', 'http://localhost:5173'];
+    const defaultAllowed = [
+      'https://the4xhub.com',
+      'https://www.the4xhub.com',
+      'https://tradingplanfrontend.vercel.app',
+      'https://backend-self-psi-26.vercel.app',
+      'http://localhost:5173',
+      'http://localhost:3000',
+    ];
     const envOrigins = process.env.FRONTEND_URL
-      ? process.env.FRONTEND_URL.split(',').map(s => s.trim())
+      ? process.env.FRONTEND_URL.split(',').map(s => s.trim()).filter(Boolean)
       : [];
+    const vercelPattern = /\.vercel\.app$/;
     const allowed = [...new Set([...defaultAllowed, ...envOrigins])];
-    if (!origin || allowed.includes(origin)) {
+    if (!origin || allowed.includes(origin) || vercelPattern.test(origin)) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
