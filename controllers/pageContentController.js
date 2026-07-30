@@ -86,7 +86,7 @@ exports.seedContent = async (req, res, next) => {
       { key: 'home_bottom_payouts', page: 'home', section: 'bottom_stats', type: 'text', value: '$890K', label: 'Referral Payouts', order: 5 },
 
       // Home - Pricing
-      { key: 'home_price', page: 'home', section: 'pricing', type: 'text', value: '$100', label: 'Price', order: 1 },
+      { key: 'home_price', page: 'home', section: 'pricing', type: 'text', value: '$120', label: 'Price', order: 1 },
       { key: 'home_price_period', page: 'home', section: 'pricing', type: 'text', value: '/ year', label: 'Period', order: 2 },
       { key: 'home_price_subtitle', page: 'home', section: 'pricing', type: 'text', value: 'Less than $9/month', label: 'Subtitle', order: 3 },
       { key: 'home_price_guarantee', page: 'home', section: 'pricing', type: 'text', value: '14-day money-back guarantee, no questions asked.', label: 'Guarantee', order: 4 },
@@ -108,7 +108,7 @@ exports.seedContent = async (req, res, next) => {
       { key: 'about_stats_signals', page: 'about', section: 'stats', type: 'text', value: '52,000+', label: 'Signals Delivered', order: 4 },
 
       // Pricing
-      { key: 'pricing_price', page: 'pricing', section: 'main', type: 'text', value: '$100', label: 'Price', order: 1 },
+      { key: 'pricing_price', page: 'pricing', section: 'main', type: 'text', value: '$120', label: 'Price', order: 1 },
       { key: 'pricing_period', page: 'pricing', section: 'main', type: 'text', value: '/ year', label: 'Period', order: 2 },
       { key: 'pricing_subtitle', page: 'pricing', section: 'main', type: 'text', value: 'Less than $9/month', label: 'Subtitle', order: 3 },
       { key: 'pricing_guarantee', page: 'pricing', section: 'main', type: 'text', value: '14-day money-back guarantee, no questions asked.', label: 'Guarantee', order: 4 },

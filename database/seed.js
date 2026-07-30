@@ -99,9 +99,9 @@ const seed = async () => {
 
     // Create default settings
     const defaultSettings = [
-      { key: 'membership_price', value: 100, category: 'subscription', description: 'Annual membership price in USD' },
+      { key: 'membership_price', value: 120, category: 'subscription', description: 'Annual membership price in USD' },
       { key: 'membership_duration', value: 365, category: 'subscription', description: 'Membership duration in days' },
-      { key: 'membership_plans', value: [{ name: 'Annual', price: 100, duration: 365 }], category: 'subscription', description: 'Available membership plans' },
+      { key: 'membership_plans', value: [{ name: 'Annual', price: 120, duration: 365 }], category: 'subscription', description: 'Available membership plans' },
       { key: 'institute_name', value: 'The 4x Hub', category: 'general', description: 'Institute display name' },
       { key: 'institute_email', value: 'info@tradinginstitute.com', category: 'general', description: 'Contact email' },
       { key: 'institute_phone', value: '+1 234 567 890', category: 'general', description: 'Contact phone' },

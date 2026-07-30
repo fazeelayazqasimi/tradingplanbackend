@@ -236,7 +236,7 @@ const activateUserAndCreateSubscription = async (userId, amount, paymentMethod, 
 
 exports.getActivationInfo = async (req, res, next) => {
   try {
-    const membershipPrice = await Setting.getByKey('membership_price', 100);
+    const membershipPrice = await Setting.getByKey('membership_price', 120);
     const uplineDiscount = await Setting.getByKey('upline_activation_discount', 20);
     const fundingPercent = await Setting.getByKey('funding_wallet_usage_percent', 20);
     sendSuccess(res, { membershipPrice: Number(membershipPrice), uplineActivationDiscount: Number(uplineDiscount), fundingPercent: Number(fundingPercent) });
