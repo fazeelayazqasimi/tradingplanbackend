@@ -132,7 +132,7 @@ const uploadMedia = multer({
 });
 
 const uploadDepositScreenshot = multer({
-  storage: multer.diskStorage({
+  storage: useCloudinary ? mediaStorage : multer.diskStorage({
     destination: (req, file, cb) => cb(null, path.join(UPLOAD_BASE, 'media')),
     filename: (req, file, cb) => {
       const ext = path.extname(file.originalname);

@@ -29,7 +29,10 @@ exports.createDeposit = async (req, res, next) => {
 exports.uploadScreenshot = async (req, res, next) => {
   try {
     if (!req.file) return sendError(res, 'Screenshot file is required', 400);
-    sendSuccess(res, { url: `/uploads/media/${req.file.filename}` }, 'Screenshot uploaded', 201);
+    const url = req.file.path && /^https?:\/\//.test(req.file.path)
+      ? req.file.path
+      : `/uploads/media/${req.file.filename}`;
+    sendSuccess(res, { url }, 'Screenshot uploaded', 201);
   } catch (error) { next(error); }
 };
 
