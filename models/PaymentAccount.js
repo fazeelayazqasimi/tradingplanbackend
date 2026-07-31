@@ -1,5 +1,9 @@
 const mongoose = require('mongoose');
 
+const isCrypto = function () {
+  return this.paymentType === 'crypto';
+};
+
 const paymentAccountSchema = new mongoose.Schema({
   bankName: {
     type: String,
@@ -8,18 +12,36 @@ const paymentAccountSchema = new mongoose.Schema({
   },
   accountHolderName: {
     type: String,
-    required: [true, 'Account holder name is required'],
-    trim: true
+    trim: true,
+    default: null,
+    validate: {
+      validator: function (v) {
+        return isCrypto.call(this) ? true : !!v;
+      },
+      message: 'Account holder name is required'
+    }
   },
   accountNumber: {
     type: String,
-    required: [true, 'Account number is required'],
-    trim: true
+    trim: true,
+    default: null,
+    validate: {
+      validator: function (v) {
+        return isCrypto.call(this) ? true : !!v;
+      },
+      message: 'Account number is required'
+    }
   },
   walletAddress: {
     type: String,
     trim: true,
-    default: null
+    default: null,
+    validate: {
+      validator: function (v) {
+        return isCrypto.call(this) ? !!v : true;
+      },
+      message: 'Wallet address is required'
+    }
   },
   network: {
     type: String,

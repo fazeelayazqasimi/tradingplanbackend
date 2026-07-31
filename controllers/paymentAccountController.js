@@ -29,8 +29,10 @@ exports.createAccount = async (req, res, next) => {
 
 exports.updateAccount = async (req, res, next) => {
   try {
-    const account = await PaymentAccount.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    const account = await PaymentAccount.findById(req.params.id);
     if (!account) return sendError(res, 'Payment account not found', 404);
+    Object.assign(account, req.body);
+    await account.save();
     sendSuccess(res, account, 'Payment account updated');
   } catch (error) { next(error); }
 };
