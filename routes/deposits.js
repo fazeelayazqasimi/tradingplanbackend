@@ -1,9 +1,11 @@
 const router = require('express').Router();
-const { createDeposit, getMyDeposits, getDepositById, getAllDeposits, approveDeposit, rejectDeposit, deleteDeposit, getSupportedCoins, verifyCryptoPayment } = require('../controllers/depositController');
+const { createDeposit, uploadScreenshot, getMyDeposits, getDepositById, getAllDeposits, approveDeposit, rejectDeposit, deleteDeposit, getSupportedCoins, verifyCryptoPayment } = require('../controllers/depositController');
 const { protect, authorize } = require('../middleware/auth');
+const { uploadDepositScreenshot } = require('../middleware/upload');
 
 router.use(protect);
 router.post('/', createDeposit);
+router.post('/upload-screenshot', uploadDepositScreenshot.single('screenshot'), uploadScreenshot);
 router.get('/coins', getSupportedCoins);
 router.post('/verify-crypto', verifyCryptoPayment);
 router.get('/mine', getMyDeposits);

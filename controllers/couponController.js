@@ -80,6 +80,7 @@ exports.generateCoupons = async (req, res, next) => {
         code,
         type: 'pin',
         value: couponValue,
+        noCommission: commission === false,
         description: description || (commission === false ? 'No commission PIN' : 'With commission PIN'),
         isActive: true,
         usageLimit: 1,

@@ -34,21 +34,16 @@ const generateReferralCode = async (name) => {
   return `REF${Date.now().toString(36).toUpperCase().slice(-6)}`;
 };
 
-const HARDCODED_COMMISSIONS = { 1: 30, 2: 10, 3: 5, 4: 3, 5: 2 };
-
-const getRankBasedCommission = async (referrerId, level, purchaseAmount) => {
-  const settingsFallback = async () => {
-    const s = await Setting.findOne({ key: `referral_level_${level}_commission` });
-    return (s && Number(s.value)) || HARDCODED_COMMISSIONS[level] || 0;
-  };
-
+const getRankBasedCommission = async (referrerId, level) => {
   const userRank = await UserRank.findOne({ userId: referrerId }).populate('currentRankId').lean();
-  if (!userRank || !userRank.currentRankId) return settingsFallback();
+  if (!userRank || !userRank.currentRankId) return { amount: 0 };
 
   const rank = userRank.currentRankId;
-  let amount = level === 1 ? rank.activationGain : rank.indirectIncome;
-  if (!amount || amount <= 0) amount = await settingsFallback();
-  return amount;
+  return {
+    amount: level === 1 ? (rank.activationGain || 0) : (rank.indirectIncome || 0),
+    rankName: rank.name,
+    rankSlug: rank.slug
+  };
 };
 
 const getMaxReferralLevels = async () => {
@@ -59,6 +54,13 @@ const getMaxReferralLevels = async () => {
 const processReferralCommission = async (referredUserId, purchaseAmount, conversionType = 'course') => {
   const referredUser = await User.findById(referredUserId).lean();
   if (!referredUser || !referredUser.referredBy) return null;
+
+  const alreadyProcessed = await Referral.findOne({
+    referredUserId,
+    level: 1,
+    status: { $in: [REFERRAL_STATUSES.CONVERTED, REFERRAL_STATUSES.PAID] }
+  });
+  if (alreadyProcessed) return null;
 
   const maxLevels = await getMaxReferralLevels();
   const results = [];
@@ -75,7 +77,20 @@ const processReferralCommission = async (referredUserId, purchaseAmount, convers
     const referrer = await User.findById(currentUserId).lean();
     if (!referrer) break;
 
-    const commissionAmount = await getRankBasedCommission(currentUserId, chainLevel, purchaseAmount);
+    if (chainLevel > 1) {
+      const existingIndirect = await Referral.findOne({
+        referrerId: currentUserId,
+        referredUserId
+      });
+      if (existingIndirect && existingIndirect.status !== REFERRAL_STATUSES.PENDING) {
+        currentUserId = referrer.referredBy;
+        chainLevel++;
+        continue;
+      }
+    }
+
+    const commission = await getRankBasedCommission(currentUserId, chainLevel);
+    const commissionAmount = commission.amount;
     if (commissionAmount <= 0) {
       const nextReferrer = referrer.referredBy;
       currentUserId = nextReferrer;
@@ -97,7 +112,9 @@ const processReferralCommission = async (referredUserId, purchaseAmount, convers
           referredName: `${referredUser.firstName} ${referredUser.lastName}`,
           purchaseAmount,
           level: chainLevel,
-          conversionType
+          conversionType,
+          rankName: commission.rankName || null,
+          rankSlug: commission.rankSlug || null
         }
       });
     } catch (_) {
@@ -122,24 +139,18 @@ const processReferralCommission = async (referredUserId, purchaseAmount, convers
         { new: true }
       );
     } else {
-      const existingIndirect = await Referral.findOne({
+      await Referral.create({
         referrerId: currentUserId,
-        referredUserId
+        referredUserId,
+        referralCode: referrer.referralCode || '',
+        status: REFERRAL_STATUSES.CONVERTED,
+        commissionAmount,
+        commissionPaid: commissionAmount,
+        commissionPaidAt: new Date(),
+        level: chainLevel,
+        conversionType,
+        conversionAmount: purchaseAmount
       });
-      if (!existingIndirect) {
-        await Referral.create({
-          referrerId: currentUserId,
-          referredUserId,
-          referralCode: referrer.referralCode || '',
-          status: REFERRAL_STATUSES.CONVERTED,
-          commissionAmount,
-          commissionPaid: commissionAmount,
-          commissionPaidAt: new Date(),
-          level: chainLevel,
-          conversionType,
-          conversionAmount: purchaseAmount
-        });
-      }
     }
 
     results.push({ userId: currentUserId, level: chainLevel, amount: commissionAmount });

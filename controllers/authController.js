@@ -103,21 +103,18 @@ exports.register = async (req, res, next) => {
       console.error('[REGISTER] UserRank creation error:', e.message);
     }
 
-    // Free registration bonus: check admin settings
+    // Registration referral bonus (fixed $1): credited to upline's funding wallet
     if (referredBy) {
       try {
         const bonusEnabled = await Setting.getByKey('free_registration_bonus_enabled', 'true');
         if (bonusEnabled === 'true' || bonusEnabled === true) {
-          const baseAmount = Number(await Setting.getByKey('free_registration_bonus_amount', 1));
-          const freeRegCount = await Referral.countDocuments({ referrerId: referredBy, status: 'pending' });
-          const bonusAmount = baseAmount + freeRegCount;
           await creditWallet(referredBy, {
-            amount: bonusAmount,
-            category: 'bonus',
-            description: `Free registration bonus (#${freeRegCount + 1}) for referring ${userFirstName} ${userLastName}`,
+            amount: 1,
+            category: 'registration',
+            description: `Registration referral bonus for referring ${userFirstName} ${userLastName}`,
             referenceModel: 'User',
             referenceId: user._id,
-            walletType: 'main',
+            walletType: 'funding',
           });
         }
       } catch (e) {

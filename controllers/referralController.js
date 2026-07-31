@@ -43,9 +43,10 @@ exports.getReferralStats = async (req, res, next) => {
     ]);
     const pendingCount = await Referral.countDocuments({ referrerId: req.user._id, status: 'pending' });
     const activeCount = await Referral.countDocuments({ referrerId: req.user._id, status: { $in: ['converted', 'paid'] } });
+    const activeMembers = await Referral.countDocuments({ referrerId: req.user._id, level: 1, status: { $in: ['converted', 'paid'] } });
 
     const freeRegEarnings = await WalletTransaction.aggregate([
-      { $match: { userId: req.user._id, category: 'bonus', description: /Free registration/i } },
+      { $match: { userId: req.user._id, category: 'registration' } },
       { $group: { _id: null, total: { $sum: '$amount' } } },
     ]);
 
@@ -56,6 +57,7 @@ exports.getReferralStats = async (req, res, next) => {
       pendingCommission: pendingCommissions[0]?.total || 0,
       pendingReferrals: pendingCount,
       activeReferrals: activeCount,
+      activeMembers,
       freeRegistrationEarnings: freeRegEarnings[0]?.total || 0,
     });
   } catch (error) { next(error); }

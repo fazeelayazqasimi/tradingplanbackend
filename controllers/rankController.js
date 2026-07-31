@@ -35,8 +35,9 @@ exports.getMyRank = async (req, res, next) => {
     const nextRank = allRanks.find(r => r.order > currentOrder);
 
     const Referral = require('../models/Referral');
-    const directCount = await Referral.countDocuments({ referrerId: req.user._id, level: 1 });
-    const totalTeam = await Referral.countDocuments({ referrerId: req.user._id });
+    // Rank qualification counts ACTIVE members only (converted/paid) - free registrations (pending) are excluded
+    const directCount = await Referral.countDocuments({ referrerId: req.user._id, level: 1, status: { $in: ['converted', 'paid'] } });
+    const totalTeam = await Referral.countDocuments({ referrerId: req.user._id, status: { $in: ['converted', 'paid'] } });
 
     sendSuccess(res, { userRank, nextRank, allRanks, directCount, totalTeam });
   } catch (error) { next(error); }

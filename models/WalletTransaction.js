@@ -27,6 +27,7 @@ const walletTransactionSchema = new mongoose.Schema({
         'indirect_income',
         'trading_profit',
         'bonus',
+        'registration',
         'withdrawal',
         'purchase',
         'subscription',

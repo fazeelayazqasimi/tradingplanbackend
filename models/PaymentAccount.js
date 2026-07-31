@@ -16,6 +16,22 @@ const paymentAccountSchema = new mongoose.Schema({
     required: [true, 'Account number is required'],
     trim: true
   },
+  walletAddress: {
+    type: String,
+    trim: true,
+    default: null
+  },
+  network: {
+    type: String,
+    trim: true,
+    uppercase: true,
+    default: 'BEP20'
+  },
+  qrCodeUrl: {
+    type: String,
+    trim: true,
+    default: null
+  },
   iban: {
     type: String,
     trim: true,

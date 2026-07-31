@@ -4,67 +4,32 @@ const WalletTransaction = require('../models/WalletTransaction');
 const User = require('../models/User');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions } = require('../helpers/pagination');
-const { createCoinPayment, SUPPORTED_COINS } = require('../services/coinPaymentService');
+const { SUPPORTED_COINS } = require('../services/coinPaymentService');
 
 exports.createDeposit = async (req, res, next) => {
   try {
-    const { amount, paymentMethod, screenshot } = req.body;
+    const { amount, paymentMethod, screenshot, accountId, walletType } = req.body;
     if (!amount || amount <= 0) return sendError(res, 'Valid amount is required', 400);
 
+    // Manual deposit flow: request goes to admin for approval
     const deposit = await Deposit.create({
       userId: req.user._id,
       amount: parseFloat(amount),
       paymentMethod: paymentMethod || 'usdt_bep20',
       status: 'pending',
       screenshot: screenshot || null,
+      accountId: accountId || null,
+      walletType: walletType || 'main',
     });
 
-    if (paymentMethod === 'usdt_bep20' || paymentMethod?.startsWith('usdt_')) {
-      try {
-        const result = await createCoinPayment({ userId: req.user._id, amount: parseFloat(amount), coinType: 'USDT_BEP20', userName: req.user.firstName, userEmail: req.user.email });
-        deposit.coinPaymentRef = result.payment.paymentRef;
-        deposit.depositAddress = result.payment.depositAddress;
-        deposit.coinType = 'USDT_BEP20';
-        deposit.status = 'pending';
-        deposit.expiresAt = result.payment.expiresAt;
-        await deposit.save();
-        return sendSuccess(res, { ...deposit.toObject(), paymentUrl: result.payment.qrcodeUrl, depositAddress: result.payment.depositAddress, coinPaymentTxnId: result.payment.txnId, expiresAt: result.payment.expiresAt }, 'Crypto deposit created. Send USDT to the provided address. Your wallet will be credited once the payment is confirmed.');
-      } catch (cpErr) {
-        console.error('[CoinPayments] createTransaction error:', cpErr.message);
-        deposit.status = 'pending';
-        deposit.payoutError = cpErr.message;
-        await deposit.save();
-        return sendSuccess(res, deposit, 'Crypto deposit requested. Awaiting payment confirmation.', 201);
-      }
-    }
+    return sendSuccess(res, deposit, 'Deposit request submitted. Awaiting admin approval.', 201);
+  } catch (error) { next(error); }
+};
 
-    if (screenshot) {
-      deposit.status = 'approved';
-      deposit.processedBy = deposit.userId;
-      deposit.processedAt = new Date();
-      await deposit.save();
-    }
-
-    try {
-      let wallet = await Wallet.findOne({ userId: deposit.userId, type: 'main' });
-      if (!wallet) wallet = await Wallet.create({ userId: deposit.userId, type: 'main' });
-      wallet.availableBalance += deposit.amount;
-      wallet.totalEarned += deposit.amount;
-      wallet.lastCreditAt = new Date();
-      await wallet.save();
-
-      await WalletTransaction.create({
-        walletId: wallet._id, userId: deposit.userId,
-        type: 'credit', category: 'deposit', amount: deposit.amount,
-        balanceAfter: wallet.availableBalance,
-        description: `Deposit approved automatically - ${deposit.amount} (main wallet)`,
-        referenceId: deposit._id, referenceModel: 'Deposit', status: 'completed',
-      });
-    } catch (walletErr) {
-      console.error('[DEPOSIT] Auto-credit wallet error:', walletErr.message);
-    }
-
-    return sendSuccess(res, deposit, 'Deposit approved and wallet credited', 201);
+exports.uploadScreenshot = async (req, res, next) => {
+  try {
+    if (!req.file) return sendError(res, 'Screenshot file is required', 400);
+    sendSuccess(res, { url: `/uploads/media/${req.file.filename}` }, 'Screenshot uploaded', 201);
   } catch (error) { next(error); }
 };
 

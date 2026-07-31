@@ -68,6 +68,10 @@ const couponSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  noCommission: {
+    type: Boolean,
+    default: false
+  },
   description: {
     type: String,
     trim: true,

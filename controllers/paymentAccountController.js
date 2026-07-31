@@ -35,6 +35,13 @@ exports.updateAccount = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+exports.uploadQr = async (req, res, next) => {
+  try {
+    if (!req.file) return sendError(res, 'QR image file is required', 400);
+    sendSuccess(res, { url: `/uploads/media/${req.file.filename}` }, 'QR code uploaded', 201);
+  } catch (error) { next(error); }
+};
+
 exports.deleteAccount = async (req, res, next) => {
   try {
     const account = await PaymentAccount.findByIdAndDelete(req.params.id);

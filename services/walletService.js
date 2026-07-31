@@ -7,7 +7,8 @@ const CATEGORY_FIELD_MAP = {
   direct_income: 'directIncome',
   indirect_income: 'indirectIncome',
   trading_profit: 'tradingProfit',
-  bonus: 'bonus'
+  bonus: 'bonus',
+  registration: 'bonus'
 };
 
 const creditWallet = async (userId, { amount, category, description, referenceId, referenceModel, metadata, walletType }) => {
