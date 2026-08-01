@@ -66,7 +66,7 @@ exports.getReferralStats = async (req, res, next) => {
 async function buildTree(userId, currentLevel = 1, maxDepth = 10) {
   if (currentLevel > maxDepth || !userId) return [];
   const referrals = await Referral.find({ referrerId: userId, level: 1 })
-    .populate('referredUserId', 'firstName lastName email createdAt')
+    .populate('referredUserId', 'firstName lastName email createdAt isApproved subscriptionStatus')
     .lean();
   const nodes = [];
   for (const ref of referrals) {
@@ -93,7 +93,7 @@ exports.getReferralTree = async (req, res, next) => {
     const tree = await buildTree(req.user._id);
 
     const allRefs = await Referral.find({ referrerId: req.user._id })
-      .populate('referredUserId', 'firstName lastName email createdAt')
+      .populate('referredUserId', 'firstName lastName email createdAt isApproved subscriptionStatus')
       .sort({ createdAt: -1 })
       .lean();
 
@@ -121,6 +121,11 @@ exports.getReferralTree = async (req, res, next) => {
 
     const totalCommission = allRefs.reduce((sum, r) => sum + (r.commissionAmount || 0), 0);
 
+    const activeMembers = allRefs.filter((r) => {
+      const u = r.referredUserId;
+      return u && (u.isApproved || u.subscriptionStatus === 'active');
+    }).length;
+
     sendSuccess(res, {
       tree,
       direct,
@@ -130,6 +135,8 @@ exports.getReferralTree = async (req, res, next) => {
         totalIndirect: indirect.length,
         totalReferrals: direct.length + indirect.length,
         totalCommission: Math.round(totalCommission * 100) / 100,
+        activeMembers,
+        freeMembers: allRefs.length - activeMembers,
       },
     });
   } catch (error) { next(error); }

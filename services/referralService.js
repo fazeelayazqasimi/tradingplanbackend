@@ -125,7 +125,7 @@ const processReferralCommission = async (referredUserId, purchaseAmount, convers
 
     if (chainLevel === 1) {
       await Referral.findOneAndUpdate(
-        { referredUserId },
+        { referredUserId, level: 1 },
         {
           $set: {
             status: REFERRAL_STATUSES.CONVERTED,
