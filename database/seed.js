@@ -102,7 +102,7 @@ const seed = async () => {
       { key: 'membership_price', value: 120, category: 'subscription', description: 'Annual membership price in USD' },
       { key: 'membership_duration', value: 365, category: 'subscription', description: 'Membership duration in days' },
       { key: 'membership_plans', value: [{ name: 'Annual', price: 120, duration: 365 }], category: 'subscription', description: 'Available membership plans' },
-      { key: 'institute_name', value: 'The 4x Hub', category: 'general', description: 'Institute display name' },
+      { key: 'institute_name', value: '', category: 'general', description: 'Institute display name' },
       { key: 'institute_email', value: 'info@tradinginstitute.com', category: 'general', description: 'Contact email' },
       { key: 'institute_phone', value: '+1 234 567 890', category: 'general', description: 'Contact phone' },
       { key: 'institute_address', value: '123 Trading Street, Financial District', category: 'general', description: 'Address' },
