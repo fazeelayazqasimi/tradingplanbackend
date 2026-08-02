@@ -1,6 +1,23 @@
 const PaymentAccount = require('../models/PaymentAccount');
+const QRCode = require('qrcode');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions } = require('../helpers/pagination');
+
+const toAccountJson = async (account) => {
+  const json = account.toObject ? account.toObject() : account;
+  if (json.paymentType === 'crypto' && json.walletAddress && !json.qrCodeUrl) {
+    try {
+      json.qrDataUrl = await QRCode.toDataURL(json.walletAddress, {
+        errorCorrectionLevel: 'M',
+        margin: 1,
+        width: 256
+      });
+    } catch (e) {
+      json.qrDataUrl = null;
+    }
+  }
+  return json;
+};
 
 exports.getAccounts = async (req, res, next) => {
   try {
@@ -8,7 +25,8 @@ exports.getAccounts = async (req, res, next) => {
     if (req.user.role !== 'admin') filter.isActive = true;
     if (req.query.isActive !== undefined) filter.isActive = req.query.isActive === 'true';
     const accounts = await PaymentAccount.find(filter).sort({ order: 1, createdAt: -1 });
-    sendSuccess(res, accounts);
+    const result = await Promise.all(accounts.map(toAccountJson));
+    sendSuccess(res, result);
   } catch (error) { next(error); }
 };
 

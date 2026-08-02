@@ -5,6 +5,8 @@ const User = require('../models/User');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions } = require('../helpers/pagination');
 const { SUPPORTED_COINS } = require('../services/coinPaymentService');
+const { notifyStudentActivity } = require('../services/studentActivityService');
+const { sendDepositRequestEmail, sendDepositApprovedEmail } = require('../services/emailService');
 
 exports.createDeposit = async (req, res, next) => {
   try {
@@ -21,6 +23,16 @@ exports.createDeposit = async (req, res, next) => {
       accountId: accountId || null,
       walletType: walletType || 'main',
     });
+
+    notifyStudentActivity({
+      user: req.user,
+      action: 'deposit_requested',
+      details: { amount: `$${parseFloat(amount)}`, method: (paymentMethod || 'usdt_bep20').toUpperCase(), wallet: walletType || 'main' }
+    });
+
+    if (req.user.email) {
+      sendDepositRequestEmail(req.user, deposit).catch((e) => console.error('[EMAIL] sendDepositRequestEmail:', e.message));
+    }
 
     return sendSuccess(res, deposit, 'Deposit request submitted. Awaiting admin approval.', 201);
   } catch (error) { next(error); }
@@ -125,6 +137,8 @@ exports.approveDeposit = async (req, res, next) => {
       deposit.processedAt = new Date();
       if (req.body.adminNote) deposit.adminNote = req.body.adminNote;
       await deposit.save();
+      const webhookUser = await User.findById(deposit.userId).select('firstName email');
+      if (webhookUser?.email) sendDepositApprovedEmail(webhookUser, deposit).catch((e) => console.error('[EMAIL] sendDepositApprovedEmail:', e.message));
       return sendSuccess(res, deposit, 'Deposit already credited via webhook. Admin note saved.');
     }
 
@@ -154,6 +168,9 @@ exports.approveDeposit = async (req, res, next) => {
       referenceModel: 'Deposit',
       status: 'completed'
     });
+
+    const approvedUser = await User.findById(deposit.userId).select('firstName email');
+    if (approvedUser?.email) sendDepositApprovedEmail(approvedUser, deposit).catch((e) => console.error('[EMAIL] sendDepositApprovedEmail:', e.message));
 
     sendSuccess(res, deposit, 'Deposit approved and wallet credited');
   } catch (error) { next(error); }

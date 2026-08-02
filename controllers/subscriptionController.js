@@ -8,8 +8,23 @@ const Setting = require('../models/Setting');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions } = require('../helpers/pagination');
 const { sendAccountApprovedEmail } = require('../services/emailService');
-const { debitWallet, creditWallet } = require('../services/walletService');
+const { debitWallet, runInTransaction } = require('../services/walletService');
 const { processReferralCommission } = require('../services/referralService');
+const { notifyStudentActivity } = require('../services/studentActivityService');
+
+const businessError = (message, status = 400) => {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+};
+
+const payReferralCommission = async (userId, amount, conversionType = 'subscription') => {
+  try {
+    await processReferralCommission(userId, amount, conversionType);
+  } catch (e) {
+    console.error('[REFERRAL] processReferralCommission:', e.message);
+  }
+};
 
 const getPlanDays = async (plan) => {
   const setting = await Setting.findOne({ key: `plan_days_${plan}` });
@@ -63,62 +78,72 @@ exports.createSubscription = async (req, res, next) => {
     const targetUserId = purchasedForUserId || req.user._id;
 
     if (paymentMethod === 'wallet') {
-      const fundingWallet = await Wallet.findOne({ userId: req.user._id, type: 'funding' });
-      const fundingPercent = await Setting.getByKey('funding_wallet_usage_percent', 20);
-      const maxFundingUsage = (amount * fundingPercent) / 100;
-      let fundingUsed = 0;
+      // The wallet balance is verified on the backend inside the same
+      // transaction that deducts it, so double-spending is impossible.
+      const sub = await runInTransaction(async (session) => {
+        const existingSub = await Subscription.findOne({ userId: targetUserId, status: 'active' }).session(session);
+        if (existingSub) throw businessError('This user already has an active subscription', 400);
 
-      if (fundingWallet && fundingWallet.availableBalance > 0) {
-        fundingUsed = Math.min(fundingWallet.availableBalance, maxFundingUsage);
-        if (fundingUsed > 0) {
-          await debitWallet(req.user._id, {
-            amount: fundingUsed,
-            category: 'subscription',
-            description: purchasedForUserId
-              ? `Subscription payment for referral (${plan} plan) - from funding wallet`
-              : `Subscription payment - ${plan} plan (from funding wallet)`,
-            referenceModel: 'Subscription',
-            walletType: 'funding',
-          });
+        const fundingWallet = await Wallet.findOne({ userId: req.user._id, type: 'funding' }).session(session);
+        const fundingPercent = await Setting.getByKey('funding_wallet_usage_percent', 20);
+        const maxFundingUsage = (amount * fundingPercent) / 100;
+        let fundingUsed = 0;
+
+        if (fundingWallet && fundingWallet.availableBalance > 0) {
+          fundingUsed = Math.min(fundingWallet.availableBalance, maxFundingUsage);
+          if (fundingUsed > 0) {
+            await debitWallet(req.user._id, {
+              amount: fundingUsed,
+              category: 'subscription',
+              description: purchasedForUserId
+                ? `Subscription payment for referral (${plan} plan) - from funding wallet`
+                : `Subscription payment - ${plan} plan (from funding wallet)`,
+              referenceModel: 'Subscription',
+              walletType: 'funding',
+              session,
+            });
+          }
         }
-      }
 
-      const remaining = amount - fundingUsed;
-      const mainWallet = await Wallet.findOne({ userId: req.user._id, type: 'main' });
-      if (!mainWallet || mainWallet.availableBalance < remaining) {
-        return sendError(res, 'Insufficient main wallet balance. Please deposit first.', 400);
-      }
+        const remaining = amount - fundingUsed;
+        const mainWallet = await Wallet.findOne({ userId: req.user._id, type: 'main' }).session(session);
+        if (!mainWallet || mainWallet.availableBalance < remaining) {
+          throw businessError('Insufficient main wallet balance. Please deposit first.', 400);
+        }
 
-      await debitWallet(req.user._id, {
-        amount: remaining,
-        category: 'subscription',
-        description: purchasedForUserId
-          ? `Subscription payment for referral (${plan} plan) - from main wallet`
-          : `Subscription payment - ${plan} plan (from main wallet)`,
-        referenceModel: 'Subscription',
+        await debitWallet(req.user._id, {
+          amount: remaining,
+          category: 'subscription',
+          description: purchasedForUserId
+            ? `Subscription payment for referral (${plan} plan) - from main wallet`
+            : `Subscription payment - ${plan} plan (from main wallet)`,
+          referenceModel: 'Subscription',
+          session,
+        });
+
+        return activateUserAndCreateSubscription(targetUserId, amount, 'wallet', {
+          fundingUsed,
+          mainUsed: remaining,
+          plan: plan || 'yearly'
+        }, plan || 'yearly', session);
       });
 
-      const sub = await Subscription.create({
-        userId: targetUserId,
-        plan,
-        amount,
-        paymentMethod: 'wallet',
-        status: 'active',
-        startDate: new Date(),
-        endDate: new Date(Date.now() + (await getPlanDays(plan)) * 24 * 60 * 60 * 1000),
-        transactionRef: `SUB-WALLET-${Date.now().toString(36).toUpperCase()}`,
-        metadata: { fundingUsed, mainUsed: remaining }
-      });
-      await User.findByIdAndUpdate(targetUserId, { isApproved: true, subscriptionStatus: 'active', subscriptionExpiry: sub.endDate });
-      try {
-        await processReferralCommission(targetUserId, amount, 'subscription');
-      } catch (e) { console.error('[REFERRAL] processReferralCommission:', e.message); }
-      sendSuccess(res, sub, 'Subscription activated successfully via wallet', 201);
+    await payReferralCommission(targetUserId, amount);
+    const activatedUser = await User.findById(targetUserId).select('firstName lastName email');
+    notifyStudentActivity({
+      user: activatedUser || { _id: targetUserId, firstName: '', lastName: '', email: '' },
+      action: 'account_activated',
+      details: { method: 'wallet', amount, paid_by: req.user.email }
+    });
+    sendSuccess(res, sub, 'Subscription activated successfully via wallet', 201);
     } else {
       const sub = await Subscription.create({ userId: targetUserId, ...req.body, status: 'pending' });
       sendSuccess(res, sub, 'Subscription pending approval', 201);
     }
-  } catch (error) { next(error); }
+  } catch (error) {
+    if (error.status) return sendError(res, error.message, error.status);
+    next(error);
+  }
 };
 
 exports.approveSubscription = async (req, res, next) => {
@@ -133,6 +158,7 @@ exports.approveSubscription = async (req, res, next) => {
     await sub.save();
     await User.findByIdAndUpdate(sub.userId, { isApproved: true, subscriptionStatus: 'active', subscriptionExpiry: sub.endDate });
     const user = await User.findById(sub.userId);
+    notifyStudentActivity({ user, action: 'account_activated', details: { method: 'admin_approval', amount: sub.amount } });
     sendAccountApprovedEmail(user).catch((e) => console.error('[EMAIL] sendAccountApprovedEmail:', e.message));
     try {
       const result = await processReferralCommission(sub.userId, sub.amount, 'subscription');
@@ -183,13 +209,18 @@ exports.deleteSubscription = async (req, res, next) => {
 };
 
 const getActivationAmount = async () => {
-  const setting = await Setting.findOne({ key: 'membership_price' });
-  return (setting && Number(setting.value)) || 0;
+  return Math.max(0, Number(await Setting.getByKey('membership_price', 120)) || 0);
 };
 
-const activateUserAndCreateSubscription = async (userId, amount, paymentMethod, metadata = {}, skipCommission = false) => {
-  const plan = 'yearly';
-  const sub = await Subscription.create({
+/**
+ * Creates the subscription, activates the user and assigns the first rank.
+ * When a `session` is provided all writes belong to the caller's transaction.
+ * Referral commission is intentionally NOT handled here - callers must invoke
+ * payReferralCommission() AFTER the transaction commits.
+ */
+const activateUserAndCreateSubscription = async (userId, amount, paymentMethod, metadata = {}, plan = 'yearly', session = null) => {
+  const subOptions = session ? { session } : {};
+  const [sub] = await Subscription.create([{
     userId,
     plan,
     amount,
@@ -199,16 +230,21 @@ const activateUserAndCreateSubscription = async (userId, amount, paymentMethod, 
     endDate: new Date(Date.now() + (await getPlanDays(plan)) * 24 * 60 * 60 * 1000),
     transactionRef: `SUB-${paymentMethod.toUpperCase()}-${Date.now().toString(36).toUpperCase()}`,
     metadata,
-  });
-  await User.findByIdAndUpdate(userId, { isApproved: true, subscriptionStatus: 'active', subscriptionExpiry: sub.endDate });
+  }], subOptions);
 
-  // Assign D1 rank if not exists
+  await User.findByIdAndUpdate(userId, {
+    isApproved: true,
+    subscriptionStatus: 'active',
+    subscriptionExpiry: sub.endDate
+  }, session ? { session } : {});
+
+  // Assign first rank if not exists
   try {
-    const existingRank = await UserRank.findOne({ userId });
+    const existingRank = await UserRank.findOne({ userId }).session(session);
     if (!existingRank) {
-      const firstRank = await Rank.findOne({ isActive: true }).sort({ order: 1 });
+      const firstRank = await Rank.findOne({ isActive: true }).sort({ order: 1 }).session(session);
       if (firstRank) {
-        await UserRank.create({
+        await UserRank.create([{
           userId,
           currentRankId: firstRank._id,
           rankHistory: [{
@@ -217,20 +253,13 @@ const activateUserAndCreateSubscription = async (userId, amount, paymentMethod, 
             reason: `Assigned ${firstRank.name} on subscription activation`,
             changeType: 'automatic'
           }]
-        });
+        }], subOptions);
       }
     }
   } catch (e) {
     console.error('[SUB] UserRank creation error:', e.message);
   }
 
-  if (!skipCommission) {
-    try {
-      await processReferralCommission(userId, amount, 'subscription');
-    } catch (e) {
-      console.error('[REFERRAL] processReferralCommission:', e.message);
-    }
-  }
   return sub;
 };
 
@@ -264,9 +293,14 @@ exports.activateWithPin = async (req, res, next) => {
     await coupon.save();
 
     const amount = await getActivationAmount();
-    const sub = await activateUserAndCreateSubscription(req.user._id, amount, 'pin', { couponCode: coupon.code, couponId: coupon._id }, coupon.noCommission);
+    const sub = await activateUserAndCreateSubscription(req.user._id, amount, 'pin', { couponCode: coupon.code, couponId: coupon._id });
+
+    if (!coupon.noCommission) {
+      await payReferralCommission(req.user._id, amount);
+    }
 
     const user = await User.findById(req.user._id);
+    notifyStudentActivity({ user, action: 'account_activated', details: { method: 'pin', amount, coupon: coupon.code } });
     sendAccountApprovedEmail(user).catch((e) => console.error('[EMAIL] sendAccountApprovedEmail:', e.message));
 
     sendSuccess(res, { subscription: sub, coupon: { code: coupon.code, value: amount, noCommission: coupon.noCommission } }, 'Account activated successfully via PIN code', 201);
@@ -275,53 +309,72 @@ exports.activateWithPin = async (req, res, next) => {
 
 exports.activateWithBalance = async (req, res, next) => {
   try {
-    if (req.user.isApproved && req.user.subscriptionStatus === 'active') {
-      return sendError(res, 'Your account is already active', 400);
-    }
-
     const amount = await getActivationAmount();
+    if (amount <= 0) return sendError(res, 'Activation amount not configured', 400);
+
     const fundingPercent = Number(await Setting.getByKey('funding_wallet_usage_percent', 20));
     const maxFundingUsage = Math.round((amount * fundingPercent) / 100);
 
-    const fundingWallet = await Wallet.findOne({ userId: req.user._id, type: 'funding' });
-    let fundingUsed = 0;
-    if (fundingWallet && fundingWallet.availableBalance > 0) {
-      fundingUsed = Math.min(fundingWallet.availableBalance, maxFundingUsage);
-      if (fundingUsed > 0) {
-        await debitWallet(req.user._id, {
-          amount: fundingUsed,
-          category: 'subscription',
-          description: 'Account activation - from funding wallet',
-          referenceModel: 'Subscription',
-          walletType: 'funding',
-        });
+    // Payment is fully covered by the wallet - no PIN is requested here.
+    // Balance is verified on the backend and deducted atomically inside a
+    // single transaction (with the subscription creation).
+    const result = await runInTransaction(async (session) => {
+      const existingSub = await Subscription.findOne({ userId: req.user._id, status: 'active' }).session(session);
+      if (existingSub) throw businessError('Your account is already active', 400);
+
+      const fundingWallet = await Wallet.findOne({ userId: req.user._id, type: 'funding' }).session(session);
+      let fundingUsed = 0;
+      if (fundingWallet && fundingWallet.availableBalance > 0) {
+        fundingUsed = Math.min(fundingWallet.availableBalance, maxFundingUsage);
+        if (fundingUsed > 0) {
+          await debitWallet(req.user._id, {
+            amount: fundingUsed,
+            category: 'subscription',
+            description: 'Account activation - from funding wallet',
+            referenceModel: 'Subscription',
+            walletType: 'funding',
+            session,
+          });
+        }
       }
-    }
 
-    const remaining = amount - fundingUsed;
-    const mainWallet = await Wallet.findOne({ userId: req.user._id, type: 'main' });
-    if (!mainWallet || mainWallet.availableBalance < remaining) {
-      const needed = remaining - (mainWallet?.availableBalance || 0);
-      const msg = needed > 0
-        ? `Insufficient balance. You need $${needed.toFixed(2)} more in your main wallet.`
-        : `Insufficient main wallet balance. Activation requires $${amount}. Please deposit first.`;
-      return sendError(res, msg, 400);
-    }
+      const remaining = amount - fundingUsed;
+      const mainWallet = await Wallet.findOne({ userId: req.user._id, type: 'main' }).session(session);
+      if (!mainWallet || mainWallet.availableBalance < remaining) {
+        const needed = remaining - (mainWallet?.availableBalance || 0);
+        const msg = needed > 0
+          ? `Insufficient balance. You need $${needed.toFixed(2)} more in your main wallet.`
+          : `Insufficient main wallet balance. Activation requires $${amount}. Please deposit first.`;
+        throw businessError(msg, 400);
+      }
 
-    await debitWallet(req.user._id, {
-      amount: remaining,
-      category: 'subscription',
-      description: `Account activation - from main wallet`,
-      referenceModel: 'Subscription',
+      await debitWallet(req.user._id, {
+        amount: remaining,
+        category: 'subscription',
+        description: 'Account activation - from main wallet',
+        referenceModel: 'Subscription',
+        session,
+      });
+
+      const sub = await activateUserAndCreateSubscription(req.user._id, amount, 'wallet', { fundingUsed, mainUsed: remaining }, 'yearly', session);
+      return { sub, fundingUsed, mainUsed: remaining };
     });
 
-    const sub = await activateUserAndCreateSubscription(req.user._id, amount, 'wallet', { fundingUsed, mainUsed: remaining });
+    await payReferralCommission(req.user._id, amount);
 
     const user = await User.findById(req.user._id);
+    notifyStudentActivity({ user, action: 'account_activated', details: { method: 'wallet', amount, funding_used: result.fundingUsed, main_used: result.mainUsed } });
     sendAccountApprovedEmail(user).catch((e) => console.error('[EMAIL] sendAccountApprovedEmail:', e.message));
 
-    sendSuccess(res, { subscription: sub, fundingUsed, mainUsed: remaining }, 'Account activated successfully via wallet balance', 201);
-  } catch (error) { next(error); }
+    sendSuccess(res, {
+      subscription: result.sub,
+      fundingUsed: result.fundingUsed,
+      mainUsed: result.mainUsed
+    }, 'Account activated successfully via wallet balance', 201);
+  } catch (error) {
+    if (error.status) return sendError(res, error.message, error.status);
+    next(error);
+  }
 };
 
 exports.activateByUpline = async (req, res, next) => {
@@ -351,48 +404,76 @@ exports.activateByUpline = async (req, res, next) => {
     }
 
     const amount = await getActivationAmount();
+    if (amount <= 0) return sendError(res, 'Activation amount not configured. Please set the membership price in admin settings.', 400);
     const fundingPercent = Number(await Setting.getByKey('funding_wallet_usage_percent', 20));
     const maxFundingUsage = Math.round((amount * fundingPercent) / 100);
 
-    const fundingWallet = await Wallet.findOne({ userId: req.user._id, type: 'funding' });
-    let fundingUsed = 0;
-    if (fundingWallet && fundingWallet.availableBalance > 0) {
-      fundingUsed = Math.min(fundingWallet.availableBalance, maxFundingUsage);
-      if (fundingUsed > 0) {
-        await debitWallet(req.user._id, {
-          amount: fundingUsed,
-          category: 'subscription',
-          description: `Account activation for downline ${downline.firstName} ${downline.lastName} - from funding wallet`,
-          referenceModel: 'Subscription',
-          walletType: 'funding',
-        });
+    const result = await runInTransaction(async (session) => {
+      const freshDownline = await User.findById(downline._id).select('isApproved subscriptionStatus').session(session);
+      if (freshDownline.isApproved && freshDownline.subscriptionStatus === 'active') {
+        throw businessError('This member is already active', 400);
       }
-    }
 
-    const remaining = amount - fundingUsed;
-    const mainWallet = await Wallet.findOne({ userId: req.user._id, type: 'main' });
-    if (!mainWallet || mainWallet.availableBalance < remaining) {
-      return sendError(res, `Insufficient balance. You need $${remaining.toFixed(2)} more in your main wallet.`, 400);
-    }
+      const fundingWallet = await Wallet.findOne({ userId: req.user._id, type: 'funding' }).session(session);
+      let fundingUsed = 0;
+      if (fundingWallet && fundingWallet.availableBalance > 0) {
+        fundingUsed = Math.min(fundingWallet.availableBalance, maxFundingUsage);
+        if (fundingUsed > 0) {
+          await debitWallet(req.user._id, {
+            amount: fundingUsed,
+            category: 'subscription',
+            description: `Account activation for downline ${downline.firstName} ${downline.lastName} - from funding wallet`,
+            referenceModel: 'Subscription',
+            walletType: 'funding',
+            session,
+          });
+        }
+      }
 
-    await debitWallet(req.user._id, {
-      amount: remaining,
-      category: 'subscription',
-      description: `Account activation for downline ${downline.firstName} ${downline.lastName} - from main wallet`,
-      referenceModel: 'Subscription',
+      const remaining = amount - fundingUsed;
+      const mainWallet = await Wallet.findOne({ userId: req.user._id, type: 'main' }).session(session);
+      if (!mainWallet || mainWallet.availableBalance < remaining) {
+        throw businessError(`Insufficient balance. You need $${remaining.toFixed(2)} more in your main wallet.`, 400);
+      }
+
+      await debitWallet(req.user._id, {
+        amount: remaining,
+        category: 'subscription',
+        description: `Account activation for downline ${downline.firstName} ${downline.lastName} - from main wallet`,
+        referenceModel: 'Subscription',
+        session,
+      });
+
+      return activateUserAndCreateSubscription(
+        downline._id,
+        amount,
+        'upline',
+        { activatedBy: req.user._id, activatedByName: `${req.user.firstName} ${req.user.lastName}`, fundingUsed, mainUsed: remaining, originalAmount: amount, fundingPercent },
+        'yearly',
+        session
+      );
     });
 
-    const sub = await activateUserAndCreateSubscription(
-      downline._id,
-      amount,
-      'upline',
-      { activatedBy: req.user._id, activatedByName: `${req.user.firstName} ${req.user.lastName}`, fundingUsed, mainUsed: remaining, originalAmount: amount, fundingPercent }
-    );
+    await payReferralCommission(downline._id, amount);
+
+    notifyStudentActivity({
+      user: downline,
+      action: 'account_activated',
+      details: { method: 'upline', amount, activated_by: `${req.user.firstName} ${req.user.lastName}` }
+    });
 
     sendAccountApprovedEmail(downline).catch((e) => console.error('[EMAIL] sendAccountApprovedEmail:', e.message));
 
-    sendSuccess(res, { subscription: sub, downline: { _id: downline._id, firstName: downline.firstName, lastName: downline.lastName, email: downline.email }, fundingUsed, mainUsed: remaining }, `Member ${downline.firstName} ${downline.lastName} activated successfully`, 201);
-  } catch (error) { next(error); }
+    sendSuccess(res, {
+      subscription: result,
+      downline: { _id: downline._id, firstName: downline.firstName, lastName: downline.lastName, email: downline.email },
+      fundingUsed: result.metadata?.fundingUsed || 0,
+      mainUsed: result.metadata?.mainUsed || amount
+    }, `Member ${downline.firstName} ${downline.lastName} activated successfully`, 201);
+  } catch (error) {
+    if (error.status) return sendError(res, error.message, error.status);
+    next(error);
+  }
 };
 
 exports.adminActivateStudent = async (req, res, next) => {
@@ -407,6 +488,14 @@ exports.adminActivateStudent = async (req, res, next) => {
 
     const amount = await getActivationAmount();
     const sub = await activateUserAndCreateSubscription(userId, amount, 'admin', { activatedBy: req.user._id, activatedByName: `${req.user.firstName} ${req.user.lastName}` });
+
+    await payReferralCommission(userId, amount);
+
+    notifyStudentActivity({
+      user,
+      action: 'account_activated',
+      details: { method: 'admin', amount, activated_by: `${req.user.firstName} ${req.user.lastName}` }
+    });
 
     sendAccountApprovedEmail(user).catch((e) => console.error('[EMAIL] sendAccountApprovedEmail:', e.message));
 
