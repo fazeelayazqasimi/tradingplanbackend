@@ -51,6 +51,46 @@ const rankValidator = [
     .trim()
     .isLength({ min: 2, max: 50 })
     .withMessage('Name must be between 2 and 50 characters'),
+  body('order')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Order must be a non-negative integer'),
+  body('minDirectReferrals')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Minimum direct referrals must be a non-negative integer'),
+  body('minTeamMembers')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Minimum team members must be a non-negative integer'),
+  body('minRequiredRankCount')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Required rank count must be a non-negative integer'),
+  body('activationGain')
+    .optional()
+    .isFloat({ min: 0, max: 100000 })
+    .withMessage('Max commission must be between 0 and 100000'),
+  body('minReferrals')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Minimum referrals must be a non-negative integer'),
+  body('minRevenue')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Minimum revenue must be a non-negative number'),
+  body('commissionPercent')
+    .optional()
+    .isFloat({ min: 0, max: 100 })
+    .withMessage('Commission percent must be between 0 and 100'),
+  body('quantification')
+    .optional()
+    .isFloat({ min: 0, max: 100 })
+    .withMessage('Quantification must be between 0 and 100'),
+  body('indirectIncome')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Indirect income must be a non-negative number'),
 ];
 
 const settingValidator = [

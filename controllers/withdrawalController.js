@@ -6,6 +6,7 @@ const { sendSuccess, sendError, sendPaginated } = require('../helpers/response')
 const { getPaginationOptions } = require('../helpers/pagination');
 const { sendWithdrawalApprovedEmail } = require('../services/emailService');
 const User = require('../models/User');
+const { notifyStudentActivity } = require('../services/studentActivityService');
 
 exports.requestWithdrawal = async (req, res, next) => {
   try {
@@ -56,6 +57,12 @@ exports.requestWithdrawal = async (req, res, next) => {
       description: `Withdrawal request - ${amount} (fee: ${feeAmount})`,
       referenceId: withdrawal._id.toString(),
       referenceModel: 'Withdrawal', status: 'completed',
+    });
+
+    notifyStudentActivity({
+      user: req.user,
+      action: 'withdrawal_requested',
+      details: { amount: `$${amount}`, fee: `$${feeAmount}`, net: `$${netAmount}`, method: method.toUpperCase() }
     });
 
     sendSuccess(res, withdrawal, `Withdrawal request submitted. Processing time is up to 24 hours. You will receive ${netAmount} USDT after deducting the withdrawal fee.`, 201);

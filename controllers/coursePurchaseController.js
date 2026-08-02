@@ -7,6 +7,7 @@ const { sendSuccess, sendError, sendPaginated } = require('../helpers/response')
 const { getPaginationOptions } = require('../helpers/pagination');
 const { processReferralCommission } = require('../services/referralService');
 const { sendAccountApprovedEmail, sendPaymentReceivedEmail, sendCourseEnrollmentPendingEmail } = require('../services/emailService');
+const { notifyStudentActivity } = require('../services/studentActivityService');
 
 exports.createPurchase = async (req, res, next) => {
   try {
@@ -37,6 +38,12 @@ exports.createPurchase = async (req, res, next) => {
       await sendPaymentReceivedEmail(req.user, course.price || 0);
       await sendCourseEnrollmentPendingEmail(req.user, course);
     } catch (e) { console.error('[EMAIL] create/payment/enrollment:', e.message); }
+
+    notifyStudentActivity({
+      user: req.user,
+      action: 'course_enrollment_pending',
+      details: { course: course.title, amount: course.price || 0, method: paymentMethod || 'card' }
+    });
 
     sendSuccess(res, {
       purchase,
@@ -91,6 +98,12 @@ exports.approvePurchase = async (req, res, next) => {
         await purchase.save();
       }
     } catch (e) { console.error('[REFERRAL] processReferralCommission:', e.message); }
+
+    notifyStudentActivity({
+      user: purchase.userId,
+      action: 'course_purchased',
+      details: { course: purchase.courseId?.title || 'Course', amount: purchase.amount, method: purchase.paymentMethod }
+    });
 
     sendSuccess(res, purchase, 'Purchase approved');
   } catch (error) { next(error); }

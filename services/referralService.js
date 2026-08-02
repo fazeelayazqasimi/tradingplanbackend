@@ -3,11 +3,12 @@ const User = require('../models/User');
 const Referral = require('../models/Referral');
 const UserRank = require('../models/UserRank');
 const Rank = require('../models/Rank');
-const Setting = require('../models/Setting');
-const { creditWallet } = require('./walletService');
+const { creditWallet, runInTransaction } = require('./walletService');
 const { sendCommissionReceivedEmail } = require('./emailService');
 const { REFERRAL_STATUSES } = require('../utils/constants');
 const { checkAndPromoteRank } = require('./rankService');
+
+const MAX_CHAIN_DEPTH = 30;
 
 const generateReferralCode = async (name) => {
   const cleanName = (name || '').replace(/[^a-zA-Z]/g, '').toUpperCase().substring(0, 6);
@@ -34,140 +35,186 @@ const generateReferralCode = async (name) => {
   return `REF${Date.now().toString(36).toUpperCase().slice(-6)}`;
 };
 
-const getRankBasedCommission = async (referrerId, level) => {
-  const userRank = await UserRank.findOne({ userId: referrerId }).populate('currentRankId').lean();
-  if (!userRank || !userRank.currentRankId) return { amount: 0 };
-
-  const rank = userRank.currentRankId;
-  return {
-    amount: level === 1 ? (rank.activationGain || 0) : (rank.indirectIncome || 0),
-    rankName: rank.name,
-    rankSlug: rank.slug
-  };
-};
-
-const getMaxReferralLevels = async () => {
-  const setting = await Setting.findOne({ key: 'referral_max_levels' });
-  return (setting && Number(setting.value)) || 5;
-};
-
-const processReferralCommission = async (referredUserId, purchaseAmount, conversionType = 'course') => {
+/**
+ * GAP commission model.
+ *
+ * The direct sponsor receives commission according to their own rank
+ * (rank.activationGain = maximum commission configured for that rank).
+ *
+ * Every upline receives ONLY the GAP commission amount:
+ *   gap = ownRank.activationGain - highestCommissionPaidSoFar
+ *
+ * Because only the incremental difference is paid, the total payout for one
+ * joining/transaction can never exceed the highest rank's configured
+ * activationGain (e.g. $70 with the default D1-D6 configuration).
+ *
+ * The whole payout (atomic level-1 claim, wallet credits, referral records)
+ * runs inside a single transaction, so partial or duplicate payouts are
+ * impossible.
+ */
+const processReferralCommission = async (referredUserId, purchaseAmount, conversionType = 'subscription') => {
   const referredUser = await User.findById(referredUserId).lean();
   if (!referredUser || !referredUser.referredBy) return null;
 
-  const alreadyProcessed = await Referral.findOne({
-    referredUserId,
-    level: 1,
-    status: { $in: [REFERRAL_STATUSES.CONVERTED, REFERRAL_STATUSES.PAID] }
-  });
-  if (alreadyProcessed) return null;
+  const results = await runInTransaction(async (session) => {
+    // ------------------------------------------------------------------
+    // 1. Atomically claim the level-1 referral record.
+    //    Only one processing pass can convert it (pending -> converted).
+    // ------------------------------------------------------------------
+    let levelOneDoc = await Referral.findOneAndUpdate(
+      {
+        referredUserId,
+        level: 1,
+        referrerId: referredUser.referredBy,
+        status: REFERRAL_STATUSES.PENDING
+      },
+      {
+        $set: {
+          status: REFERRAL_STATUSES.CONVERTED,
+          conversionType,
+          conversionAmount: purchaseAmount
+        }
+      },
+      { new: true, session }
+    );
 
-  const maxLevels = await getMaxReferralLevels();
-  const results = [];
-  let currentUserId = referredUser.referredBy;
-  let chainLevel = 1;
-
-  const visited = new Set();
-  visited.add(referredUserId.toString());
-
-  while (currentUserId && chainLevel <= maxLevels) {
-    if (visited.has(currentUserId.toString())) break;
-    visited.add(currentUserId.toString());
-
-    const referrer = await User.findById(currentUserId).lean();
-    if (!referrer) break;
-
-    if (chainLevel > 1) {
-      const existingIndirect = await Referral.findOne({
-        referrerId: currentUserId,
-        referredUserId
-      });
-      if (existingIndirect && existingIndirect.status !== REFERRAL_STATUSES.PENDING) {
-        currentUserId = referrer.referredBy;
-        chainLevel++;
-        continue;
+    if (!levelOneDoc) {
+      const existing = await Referral.findOne({ referredUserId, level: 1 }).session(session);
+      if (existing) {
+        if (existing.status !== REFERRAL_STATUSES.PENDING) return null;
+        existing.status = REFERRAL_STATUSES.CONVERTED;
+        existing.conversionType = conversionType;
+        existing.conversionAmount = purchaseAmount;
+        levelOneDoc = existing;
+      } else {
+        const created = await Referral.create([{
+          referrerId: referredUser.referredBy,
+          referredUserId,
+          referralCode: referredUser.referralCode || '',
+          status: REFERRAL_STATUSES.CONVERTED,
+          level: 1,
+          conversionType,
+          conversionAmount: purchaseAmount
+        }], { session });
+        levelOneDoc = created[0];
       }
     }
 
-    const commission = await getRankBasedCommission(currentUserId, chainLevel);
-    const commissionAmount = commission.amount;
-    if (commissionAmount <= 0) {
-      const nextReferrer = referrer.referredBy;
-      currentUserId = nextReferrer;
-      chainLevel++;
-      continue;
-    }
+    // ------------------------------------------------------------------
+    // 2. Walk the upline chain and compute GAP commissions.
+    // ------------------------------------------------------------------
+    const allRanks = await Rank.find({ isActive: true }).select('name slug activationGain').lean();
+    const rankById = new Map(allRanks.map((r) => [r._id.toString(), r]));
+    const topMax = allRanks.reduce((max, r) => Math.max(max, r.activationGain || 0), 0);
 
-    let result = null;
-    try {
-      result = await creditWallet(currentUserId, {
-        amount: commissionAmount,
-        category: chainLevel === 1 ? 'direct_income' : 'indirect_income',
-        description: chainLevel === 1
-          ? `Activation earning from ${referredUser.firstName} ${referredUser.lastName}'s ${conversionType === 'subscription' ? 'membership activation' : conversionType}`
-          : `Indirect earning from ${referredUser.firstName} ${referredUser.lastName}'s ${conversionType === 'subscription' ? 'membership activation' : conversionType}`,
-        referenceModel: 'Referral',
-        referenceId: referredUserId,
-        metadata: {
-          referredName: `${referredUser.firstName} ${referredUser.lastName}`,
-          purchaseAmount,
-          level: chainLevel,
-          conversionType,
-          rankName: commission.rankName || null,
-          rankSlug: commission.rankSlug || null
+    const payoutResults = [];
+    let maxPaidSoFar = 0;
+    let currentUserId = referredUser.referredBy;
+    let chainLevel = 1;
+    const now = new Date();
+    const visited = new Set([referredUserId.toString()]);
+
+    while (currentUserId && chainLevel <= MAX_CHAIN_DEPTH) {
+      const currentIdStr = currentUserId.toString();
+      if (visited.has(currentIdStr)) break;
+      visited.add(currentIdStr);
+
+      const referrer = await User.findById(currentUserId).select('_id referralCode referredBy').lean();
+      if (!referrer) break;
+
+      if (chainLevel > 1) {
+        const existingIndirect = await Referral.findOne({ referrerId: currentUserId, referredUserId }).session(session);
+        if (existingIndirect && existingIndirect.status !== REFERRAL_STATUSES.PENDING) {
+          currentUserId = referrer.referredBy;
+          chainLevel++;
+          continue;
         }
-      });
-    } catch (_) {
+      }
+
+      const userRank = await UserRank.findOne({ userId: currentUserId }).select('currentRankId').session(session).lean();
+      const rank = userRank && userRank.currentRankId
+        ? rankById.get(userRank.currentRankId.toString())
+        : null;
+      const rankMax = rank ? (rank.activationGain || 0) : 0;
+
+      let amount = 0;
+      if (chainLevel === 1) {
+        amount = maxPaidSoFar < topMax ? rankMax : 0;
+        maxPaidSoFar = Math.max(maxPaidSoFar, amount);
+      } else {
+        amount = maxPaidSoFar < topMax ? Math.max(0, rankMax - maxPaidSoFar) : 0;
+        maxPaidSoFar = Math.max(maxPaidSoFar, rankMax);
+      }
+
+      if (amount > 0) {
+        const isDirect = chainLevel === 1;
+        await creditWallet(currentUserId, {
+          amount,
+          category: isDirect ? 'direct_income' : 'indirect_income',
+          description: isDirect
+            ? `Activation earning from ${referredUser.firstName} ${referredUser.lastName}'s ${conversionType === 'subscription' ? 'membership activation' : conversionType}`
+            : `GAP earning from ${referredUser.firstName} ${referredUser.lastName}'s ${conversionType === 'subscription' ? 'membership activation' : conversionType}`,
+          referenceModel: 'Referral',
+          referenceId: referredUserId,
+          metadata: {
+            referredName: `${referredUser.firstName} ${referredUser.lastName}`,
+            purchaseAmount,
+            level: chainLevel,
+            conversionType,
+            rankName: rank ? rank.name : null,
+            rankSlug: rank ? rank.slug : null,
+            maxCommission: rankMax,
+            gapAmount: isDirect ? null : amount
+          },
+          session
+        });
+        payoutResults.push({ userId: currentUserId, level: chainLevel, amount });
+      }
+
+      if (chainLevel === 1) {
+        levelOneDoc.commissionAmount = amount;
+        levelOneDoc.commissionPaid = amount;
+        levelOneDoc.commissionPaidAt = amount > 0 ? now : null;
+        await levelOneDoc.save({ session });
+      } else {
+        await Referral.findOneAndUpdate(
+          { referrerId: currentUserId, referredUserId },
+          {
+            $set: {
+              status: REFERRAL_STATUSES.CONVERTED,
+              commissionAmount: amount,
+              commissionPaid: amount,
+              commissionPaidAt: amount > 0 ? now : null,
+              level: chainLevel,
+              conversionType,
+              conversionAmount: purchaseAmount
+            },
+            $setOnInsert: { referralCode: referrer.referralCode || '' }
+          },
+          { upsert: true, session, new: true }
+        );
+      }
+
       currentUserId = referrer.referredBy;
       chainLevel++;
-      continue;
     }
 
-    if (chainLevel === 1) {
-      await Referral.findOneAndUpdate(
-        { referredUserId, level: 1 },
-        {
-          $set: {
-            status: REFERRAL_STATUSES.CONVERTED,
-            commissionAmount,
-            commissionPaid: commissionAmount,
-            commissionPaidAt: new Date(),
-            conversionType,
-            conversionAmount: purchaseAmount
-          }
-        },
-        { new: true }
-      );
-    } else {
-      await Referral.create({
-        referrerId: currentUserId,
-        referredUserId,
-        referralCode: referrer.referralCode || '',
-        status: REFERRAL_STATUSES.CONVERTED,
-        commissionAmount,
-        commissionPaid: commissionAmount,
-        commissionPaidAt: new Date(),
-        level: chainLevel,
-        conversionType,
-        conversionAmount: purchaseAmount
-      });
-    }
+    return payoutResults;
+  });
 
-    results.push({ userId: currentUserId, level: chainLevel, amount: commissionAmount });
-
+  // Post-commit work: notifications + rank promotion checks
+  for (const r of results || []) {
     try {
-      await sendCommissionReceivedEmail(referrer, commissionAmount);
+      const user = await User.findById(r.userId).lean();
+      if (user && r.amount > 0) await sendCommissionReceivedEmail(user, r.amount);
     } catch (e) { console.error('[EMAIL] sendCommissionReceivedEmail:', e.message); }
 
     try {
-      await checkAndPromoteRank(currentUserId);
+      await checkAndPromoteRank(r.userId);
     } catch (e) { console.error('[RANK] checkAndPromoteRank:', e.message); }
-
-    currentUserId = referrer.referredBy;
-    chainLevel++;
   }
 
-  return results.length > 0 ? results : null;
+  return results && results.length > 0 ? results : null;
 };
 
 const getReferralTree = async (userId) => {

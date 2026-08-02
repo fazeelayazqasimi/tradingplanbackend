@@ -531,6 +531,93 @@ const sendClassPublishedEmail = async (users, classSession) => {
   return results;
 };
 
+const sendDepositRequestEmail = async (user, deposit) => {
+  const name = await getBrandName();
+  const html = buildTemplate('Deposit Request Received', `
+    <h2 style="margin:0 0 16px 0;color:#1f2937;font-size:20px;">Deposit Request Received</h2>
+    <p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.6;">
+      Hi ${user.firstName}, we have received your deposit request. Our team will verify your payment shortly.
+    </p>
+    <div style="background-color:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:16px;margin:16px 0;text-align:center;">
+      <p style="margin:0;font-size:14px;color:#6b7280;">Deposit Amount</p>
+      <p style="margin:4px 0 0 0;font-size:28px;font-weight:700;color:#2563eb;">$${Number(deposit.amount).toFixed(2)}</p>
+      <p style="margin:8px 0 0 0;font-size:13px;color:#6b7280;">Method: ${(deposit.paymentMethod || 'usdt_bep20').replace(/_/g, ' ').toUpperCase()}</p>
+    </div>
+    <p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.6;">
+      Your wallet will be credited once the admin approves your deposit. This usually takes a few hours.
+    </p>
+    <div style="text-align:center;margin:24px 0;">
+      <a href="${process.env.FRONTEND_URL}/wallet" style="background-color:#3b82f6;color:#ffffff;padding:12px 28px;text-decoration:none;border-radius:6px;font-size:15px;font-weight:600;display:inline-block;">View Wallet</a>
+    </div>
+  `, name);
+
+  return sendEmail({
+    to: user.email,
+    subject: `Deposit Request Received - $${Number(deposit.amount).toFixed(2)} - ${name}`,
+    html
+  });
+};
+
+const sendDepositApprovedEmail = async (user, deposit) => {
+  const name = await getBrandName();
+  const walletLabel = (deposit.walletType || 'main') === 'funding' ? 'Funding' : 'Main';
+  const html = buildTemplate('Deposit Approved', `
+    <h2 style="margin:0 0 16px 0;color:#1f2937;font-size:20px;">Deposit Approved</h2>
+    <p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.6;">
+      Hi ${user.firstName}, your deposit has been approved and credited to your ${walletLabel} wallet.
+    </p>
+    <div style="background-color:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:16px;margin:16px 0;text-align:center;">
+      <p style="margin:0;font-size:14px;color:#6b7280;">Amount Credited</p>
+      <p style="margin:4px 0 0 0;font-size:28px;font-weight:700;color:#16a34a;">$${Number(deposit.amount).toFixed(2)}</p>
+    </div>
+    <div style="text-align:center;margin:24px 0;">
+      <a href="${process.env.FRONTEND_URL}/wallet" style="background-color:#3b82f6;color:#ffffff;padding:12px 28px;text-decoration:none;border-radius:6px;font-size:15px;font-weight:600;display:inline-block;">View Wallet</a>
+    </div>
+  `, name);
+
+  return sendEmail({
+    to: user.email,
+    subject: `Deposit Approved - $${Number(deposit.amount).toFixed(2)} - ${name}`,
+    html
+  });
+};
+
+/**
+ * Single summary email to the admin inbox (the4xhub@gmail.com by default)
+ * whenever a student performs any activity (login, activation, purchase,
+ * lesson completion, quiz submission, withdrawal request, etc.).
+ */
+const sendAdminActivityEmail = async (student, activity) => {  const name = await getBrandName();
+  const to = (await Setting.getByKey('admin_notification_email', null)) || process.env.EMAIL_USER || 'the4xhub@gmail.com';
+  const label = activity.label || activity.action || 'Activity';
+
+  const detailRows = activity.details
+    ? Object.entries(activity.details).map(([key, value]) => `
+      <tr>
+        <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>${String(key).replace(/_/g, ' ')}</strong></td>
+        <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;">${String(value ?? '').replace(/</g, '&lt;')}</td>
+      </tr>`).join('')
+    : '';
+
+  const html = buildTemplate('Student Activity Alert', `
+    <h2 style="margin:0 0 16px 0;color:#1f2937;font-size:20px;">New Student Activity</h2>
+    <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:16px;margin-bottom:16px;">
+      <p style="margin:0 0 4px 0;font-size:16px;font-weight:600;color:#1e3a8a;">${student.firstName || ''} ${student.lastName || ''}</p>
+      <p style="margin:0 0 4px 0;font-size:14px;color:#374151;">${student.email || 'N/A'}</p>
+      <p style="margin:0;font-size:14px;color:#6b7280;">${new Date().toLocaleString()}</p>
+    </div>
+    <div style="text-align:center;margin:0 0 16px 0;">
+      <span style="background-color:#3b82f6;color:#ffffff;padding:6px 16px;border-radius:16px;font-size:13px;font-weight:600;text-transform:uppercase;">${label}</span>
+    </div>
+    ${detailRows ? `<table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;margin:16px 0;">${detailRows}</table>` : ''}
+    <div style="text-align:center;margin:24px 0;">
+      <a href="${process.env.FRONTEND_URL}/admin/dashboard" style="background-color:#3b82f6;color:#ffffff;padding:12px 28px;text-decoration:none;border-radius:6px;font-size:15px;font-weight:600;display:inline-block;">Open Admin Dashboard</a>
+    </div>
+  `, name);
+
+  return sendEmail({ to, subject: `[Student Activity] ${student.firstName || ''} ${student.lastName || ''} - ${label}`, html });
+};
+
 module.exports = {
   sendEmail,
   sendWelcomeEmail,
@@ -549,5 +636,8 @@ module.exports = {
   sendAccountDeactivatedEmail,
   sendOTPEmail,
   sendScheduleEmail,
-  sendClassPublishedEmail
+  sendClassPublishedEmail,
+  sendDepositRequestEmail,
+  sendDepositApprovedEmail,
+  sendAdminActivityEmail
 };

@@ -1,6 +1,7 @@
 const Quiz = require('../models/Quiz');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions } = require('../helpers/pagination');
+const { notifyStudentActivity } = require('../services/studentActivityService');
 
 exports.getQuizzes = async (req, res, next) => {
   try {
@@ -36,6 +37,11 @@ exports.submitQuiz = async (req, res, next) => {
     const percentage = Math.round((score / quiz.questions.length) * 100);
     quiz.attempts.push({ userId: req.user._id, answers, score: percentage, completedAt: new Date() });
     await quiz.save();
+    notifyStudentActivity({
+      user: req.user,
+      action: 'quiz_submitted',
+      details: { score: `${percentage}%`, passed: percentage >= quiz.passingScore ? 'yes' : 'no', questions: quiz.questions.length }
+    });
     sendSuccess(res, { score: percentage, total: quiz.questions.length, passed: percentage >= quiz.passingScore, answers: quiz.questions.map(q => ({ correctAnswer: q.correctAnswer, explanation: q.explanation })) });
   } catch (error) { next(error); }
 };

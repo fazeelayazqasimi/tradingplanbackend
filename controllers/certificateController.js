@@ -1,6 +1,7 @@
 const Certificate = require('../models/Certificate');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions } = require('../helpers/pagination');
+const { notifyStudentActivity } = require('../services/studentActivityService');
 
 exports.getMyCertificates = async (req, res, next) => {
   try {
@@ -66,6 +67,14 @@ exports.createCertificate = async (req, res, next) => {
       certificateNumber: certificateNumber || `CERT-${Date.now().toString(36).toUpperCase()}`,
       issuedAt: new Date(),
     });
+    const student = await require('../models/User').findById(userId).select('firstName lastName email');
+    if (student) {
+      notifyStudentActivity({
+        user: student,
+        action: 'certificate_issued',
+        details: { certificate: cert.certificateNumber, grade, percentage: percentage ? `${percentage}%` : 'N/A' }
+      });
+    }
     sendSuccess(res, cert, 'Certificate issued', 201);
   } catch (error) { next(error); }
 };

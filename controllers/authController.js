@@ -13,6 +13,7 @@ const { sendWelcomeEmail, sendVerificationEmail, sendPasswordResetEmail, sendRef
 const { generateReferralCode, processReferralCommission } = require('../services/referralService');
 const { creditWallet } = require('../services/walletService');
 const { sendSMS } = require('../services/smsService');
+const { notifyStudentActivity } = require('../services/studentActivityService');
 
 // Helper: generate JWT tokens
 const generateToken = (userId) => {
@@ -146,6 +147,12 @@ exports.register = async (req, res, next) => {
     // Send welcome email (non-blocking)
     sendWelcomeEmail(user).catch((e) => console.error('[EMAIL] sendWelcomeEmail:', e.message));
 
+    notifyStudentActivity({
+      user,
+      action: 'registration',
+      details: { email: user.email, referred_by: referredBy ? 'yes' : 'no' }
+    });
+
     sendTokenResponse(user, 201, res, 'Registration successful.');
   } catch (error) {
     next(error);
@@ -166,6 +173,14 @@ exports.login = async (req, res, next) => {
 
     user.lastLogin = new Date();
     await user.save({ validateBeforeSave: false });
+
+    if (user.role === 'student') {
+      notifyStudentActivity({
+        user,
+        action: 'login',
+        details: { email: user.email, ip: req.ip || null }
+      });
+    }
 
     sendTokenResponse(user, 200, res, 'Login successful');
   } catch (error) {
@@ -256,6 +271,8 @@ exports.changePassword = async (req, res, next) => {
     user.password = req.body.newPassword;
     await user.save();
 
+    notifyStudentActivity({ user: req.user, action: 'password_changed', details: { email: req.user.email } });
+
     sendTokenResponse(user, 200, res, 'Password changed successfully');
   } catch (error) {
     next(error);
@@ -273,6 +290,7 @@ exports.updateProfile = async (req, res, next) => {
     if (req.file) updateData.avatar = `/uploads/avatars/${req.file.filename}`;
 
     const user = await User.findByIdAndUpdate(req.user._id, updateData, { new: true, runValidators: true }).select('-password');
+    notifyStudentActivity({ user: req.user, action: 'profile_updated', details: updateData });
     sendSuccess(res, user, 'Profile updated');
   } catch (error) {
     next(error);
@@ -481,6 +499,8 @@ exports.changeEmail = async (req, res, next) => {
 
     const user = await User.findByIdAndUpdate(req.user._id, { email: normalized, isEmailVerified: true }, { new: true }).select('-password');
     await TempOTP.deleteOne({ _id: record._id });
+
+    notifyStudentActivity({ user: req.user, action: 'email_changed', details: { old_email: req.user.email, new_email: normalized } });
 
     sendSuccess(res, { user }, 'Email changed successfully');
   } catch (error) {

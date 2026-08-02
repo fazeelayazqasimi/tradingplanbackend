@@ -6,89 +6,175 @@ const Referral = require('../models/Referral');
 const { sendRankPromotionEmail } = require('./emailService');
 const ActivityLog = require('../models/ActivityLog');
 
-const checkAndPromoteRank = async (userId) => {
-  const userRank = await UserRank.findOne({ userId })
-    .populate('currentRankId')
-    .lean();
+const ACTIVE_REFERRAL_STATUSES = ['converted', 'paid'];
+const MAX_TREE_DEPTH = 30;
 
-  if (!userRank) return null;
+const getActiveRanks = () => Rank.find({ isActive: true }).sort({ order: 1 }).lean();
 
-  const userRankDoc = await UserRank.findOne({ userId });
-  if (userRankDoc.isLocked) {
-    return { promoted: false, locked: true, currentRank: userRank.currentRankId };
+/**
+ * Computes rank qualification from the actual network data:
+ *  - directReferrals:  active (converted/paid) level-1 referrals
+ *  - activeTeamMembers: all active descendants across the whole tree (free members excluded)
+ *  - qualifiedLegs:     number of distinct direct legs that contain at least ONE member
+ *                       whose rank order >= the required rank order. Multiple qualifying
+ *                       members inside the same direct leg count as a single leg only.
+ */
+const getRankQualification = async (userId, { requiredRankName = null, qualifiedLegsRequired = 0 } = {}) => {
+  const result = {
+    directReferrals: 0,
+    activeTeamMembers: 0,
+    qualifiedLegs: 0,
+    qualifiedLegsRequired: qualifiedLegsRequired || 0,
+    requiredRankName: requiredRankName || null
+  };
+
+  let requiredRankOrder = null;
+  if (requiredRankName) {
+    const requiredRank = await Rank.findOne({ name: requiredRankName, isActive: true }).lean();
+    if (requiredRank) requiredRankOrder = requiredRank.order;
   }
 
-  const directReferrals = await Referral.countDocuments({
+  const allRanks = await Rank.find({ isActive: true }).select('name order').lean();
+  const orderByRankId = new Map(allRanks.map((r) => [r._id.toString(), r.order]));
+
+  const isQualified = (rankId) => {
+    if (requiredRankOrder === null || !rankId) return false;
+    const order = orderByRankId.get(rankId.toString());
+    return order !== undefined && order >= requiredRankOrder;
+  };
+
+  const legs = await Referral.find({
     referrerId: userId,
     level: 1,
-    status: { $in: ['converted', 'paid'] }
-  });
+    status: { $in: ACTIVE_REFERRAL_STATUSES }
+  }).select('_id referredUserId').lean();
 
-  const indirectReferrals = await Referral.countDocuments({
-    referrerId: userId,
-    level: { $gte: 2 },
-    status: { $in: ['converted', 'paid'] }
-  });
+  result.directReferrals = legs.length;
+  result.activeTeamMembers = legs.length;
 
-  const totalReferrals = directReferrals + indirectReferrals;
+  const legQualified = new Set();
+  let frontier = legs.map((leg) => ({
+    userId: leg.referredUserId.toString(),
+    legId: leg._id.toString()
+  }));
 
-  const user = await User.findById(userId).lean();
-  if (!user) return null;
+  let depth = 0;
+  while (frontier.length > 0 && depth < MAX_TREE_DEPTH) {
+    depth++;
+    const ids = frontier.map((f) => f.userId);
 
-  const revenueResult = await Referral.aggregate([
-    { $match: { referrerId: new mongoose.Types.ObjectId(userId), status: { $in: ['converted', 'paid'] } } },
-    { $group: { _id: null, total: { $sum: '$conversionAmount' } } }
-  ]);
-  const computedRevenue = revenueResult.length > 0 ? revenueResult[0].total : 0;
+    const [userRanks, children] = await Promise.all([
+      UserRank.find({ userId: { $in: ids } }).select('userId currentRankId').lean(),
+      Referral.find({
+        referrerId: { $in: ids },
+        level: 1,
+        status: { $in: ACTIVE_REFERRAL_STATUSES }
+      }).select('referrerId referredUserId').lean()
+    ]);
 
-  userRankDoc.totalReferrals = totalReferrals;
-  userRankDoc.indirectReferrals = indirectReferrals;
-  userRankDoc.totalRevenue = computedRevenue;
-  await userRankDoc.save();
+    const rankByUser = new Map(userRanks.map((ur) => [ur.userId.toString(), ur.currentRankId]));
+    const childrenByParent = new Map();
+    for (const child of children) {
+      const key = child.referrerId.toString();
+      if (!childrenByParent.has(key)) childrenByParent.set(key, []);
+      childrenByParent.get(key).push(child.referredUserId.toString());
+    }
 
-  const allRanks = await Rank.find({ isActive: true }).sort({ order: 1 }).lean();
-  if (!allRanks.length) return null;
-
-  const totalTeam = directReferrals + indirectReferrals;
-
-  let qualifyingRank = allRanks[0];
-  for (const rank of allRanks) {
-    let meets = true;
-
-    if (rank.minDirectReferrals > 0 && directReferrals < rank.minDirectReferrals) meets = false;
-    if (rank.minTeamSize > 0 && totalTeam < rank.minTeamSize) meets = false;
-
-    if (rank.minAtLeastRank && rank.minAtLeast > 0) {
-      const requiredRank = allRanks.find(r => r.name === rank.minAtLeastRank);
-      if (requiredRank) {
-        const qualifiedRefs = await Referral.countDocuments({
-          referrerId: userId,
-          level: 1,
-          status: { $in: ['converted', 'paid'] }
-        });
-        const usersWithRank = await UserRank.countDocuments({
-          userId: { $in: (await Referral.find({ referrerId: userId, level: 1 }).distinct('referredUserId')) },
-          currentRankId: { $ne: null }
-        });
-        const qualifiedCount = Math.min(qualifiedRefs, usersWithRank);
-        if (qualifiedCount < rank.minAtLeast) meets = false;
+    const nextFrontier = [];
+    for (const f of frontier) {
+      if (requiredRankOrder !== null && !legQualified.has(f.legId)) {
+        const rankId = rankByUser.get(f.userId);
+        if (rankId && isQualified(rankId)) {
+          legQualified.add(f.legId);
+          result.qualifiedLegs++;
+        }
+      }
+      for (const childId of childrenByParent.get(f.userId) || []) {
+        nextFrontier.push({ userId: childId, legId: f.legId });
+        result.activeTeamMembers++;
       }
     }
-
-    if (meets) {
-      qualifyingRank = rank;
-    }
+    frontier = nextFrontier;
   }
 
-  const currentRankOrder = userRank.currentRankId ? userRank.currentRankId.order : 0;
+  return result;
+};
 
-  if (qualifyingRank.order > currentRankOrder) {
+const updateRankStats = async (userRankDoc, userId) => {
+  try {
+    const refStats = await Referral.aggregate([
+      { $match: { referrerId: new mongoose.Types.ObjectId(userId), status: { $in: ACTIVE_REFERRAL_STATUSES } } },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: 1 },
+          indirect: { $sum: { $cond: [{ $gte: ['$level', 2] }, 1, 0] } },
+          revenue: { $sum: { $ifNull: ['$conversionAmount', 0] } },
+          commission: { $sum: { $ifNull: ['$commissionAmount', 0] } }
+        }
+      }
+    ]);
+
+    const stats = refStats[0] || {};
+    userRankDoc.totalReferrals = stats.total || 0;
+    userRankDoc.indirectReferrals = stats.indirect || 0;
+    userRankDoc.totalRevenue = stats.revenue || 0;
+    userRankDoc.totalCommission = stats.commission || 0;
+  } catch (e) {
+    console.error('[RANK] updateRankStats error:', e.message);
+  }
+};
+
+const checkAndPromoteRank = async (userId) => {
+  const userRankDoc = await UserRank.findOne({ userId });
+  if (!userRankDoc) return null;
+
+  if (userRankDoc.isLocked) {
+    return { promoted: false, locked: true, currentRank: userRankDoc.currentRankId };
+  }
+
+  const allRanks = await getActiveRanks();
+  if (!allRanks.length) return null;
+
+  await updateRankStats(userRankDoc, userId);
+
+  const currentRank = allRanks.find((r) => r._id.toString() === userRankDoc.currentRankId.toString());
+  const currentOrder = currentRank ? currentRank.order : 0;
+
+  // Test the highest ranks first: qualifying for a higher rank implies qualifying for lower ones
+  const higherRanks = allRanks
+    .filter((r) => r.order > currentOrder)
+    .sort((a, b) => b.order - a.order);
+
+  let qualifyingRank = null;
+  let qualification = null;
+
+  for (const rank of higherRanks) {
+    const minDirect = rank.minDirectReferrals || 0;
+    const minTeam = rank.minTeamMembers || 0;
+    const minLegs = rank.minRequiredRank ? (rank.minRequiredRankCount || 0) : 0;
+
+    const q = await getRankQualification(userId, {
+      requiredRankName: rank.minRequiredRank || null,
+      qualifiedLegsRequired: minLegs
+    });
+
+    if (q.directReferrals < minDirect) continue;
+    if (q.activeTeamMembers < minTeam) continue;
+    if (minLegs > 0 && q.qualifiedLegs < minLegs) continue;
+
+    qualifyingRank = rank;
+    qualification = q;
+    break;
+  }
+
+  if (qualifyingRank) {
     const previousRankId = userRankDoc.currentRankId;
     userRankDoc.currentRankId = qualifyingRank._id;
     userRankDoc.rankHistory.push({
       rankId: qualifyingRank._id,
       achievedAt: new Date(),
-      reason: `Automatic promotion: ${totalReferrals} referrals, $${computedRevenue.toFixed(2)} revenue`,
+      reason: `Automatic promotion: ${qualification.directReferrals} direct referrals, ${qualification.activeTeamMembers} active team members, ${qualification.qualifiedLegs} qualified legs`,
       changedBy: null,
       changeType: 'automatic'
     });
@@ -96,7 +182,8 @@ const checkAndPromoteRank = async (userId) => {
     await userRankDoc.save();
 
     try {
-      await sendRankPromotionEmail(user, qualifyingRank);
+      const user = await User.findById(userId).lean();
+      if (user) await sendRankPromotionEmail(user, qualifyingRank);
     } catch (_) {}
 
     try {
@@ -109,17 +196,23 @@ const checkAndPromoteRank = async (userId) => {
           previousRankId,
           newRankId: qualifyingRank._id,
           rankName: qualifyingRank.name,
-          totalReferrals,
-          totalRevenue: computedRevenue
+          directReferrals: qualification.directReferrals,
+          activeTeamMembers: qualification.activeTeamMembers,
+          qualifiedLegs: qualification.qualifiedLegs
         },
         status: 'success'
       });
     } catch (_) {}
 
-    return { promoted: true, previousRank: userRank.currentRankId, newRank: qualifyingRank };
+    return {
+      promoted: true,
+      previousRank: previousRankId,
+      newRank: qualifyingRank,
+      qualification
+    };
   }
 
-  return { promoted: false, currentRank: userRank.currentRankId };
+  return { promoted: false, currentRank: userRankDoc.currentRankId };
 };
 
 const adminOverrideRank = async (userId, newRankId, reason, adminId) => {
@@ -315,6 +408,7 @@ const resetRanks = async (adminId) => {
 
 module.exports = {
   checkAndPromoteRank,
+  getRankQualification,
   adminOverrideRank,
   lockRank,
   unlockRank,

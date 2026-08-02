@@ -3,6 +3,7 @@ const UserProgress = require('../models/UserProgress');
 const Certificate = require('../models/Certificate');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions, buildPaginationMeta } = require('../helpers/pagination');
+const { notifyStudentActivity } = require('../services/studentActivityService');
 
 exports.getCourses = async (req, res, next) => {
   try {
@@ -188,6 +189,21 @@ exports.updateProgress = async (req, res, next) => {
       }
     }
     await progress.save();
+
+    const lesson = course.lessons.find((l) => l._id.toString() === String(lessonId));
+    notifyStudentActivity({
+      user: req.user,
+      action: 'lesson_completed',
+      details: { course: course.title, lesson: lesson?.title || String(lessonId), progress: `${progress.progress}%` }
+    });
+    if (progress.isCompleted) {
+      notifyStudentActivity({
+        user: req.user,
+        action: 'course_completed',
+        details: { course: course.title, progress: '100%' }
+      });
+    }
+
     sendSuccess(res, progress, 'Progress updated');
   } catch (error) {
     next(error);
