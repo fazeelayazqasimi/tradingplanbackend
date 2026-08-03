@@ -97,7 +97,7 @@ exports.getWalletStats = async (req, res, next) => {
 exports.getAllWallets = async (req, res, next) => {
   try {
     const { page, limit } = getPaginationOptions(req.query);
-    const filter = {};
+    const matchStage = {};
     if (req.query.search) {
       const users = await require('../models/User').find({
         $or: [
@@ -106,15 +106,55 @@ exports.getAllWallets = async (req, res, next) => {
           { email: { $regex: req.query.search, $options: 'i' } },
         ],
       }).select('_id');
-      filter.userId = { $in: users.map(u => u._id) };
+      matchStage.userId = { $in: users.map(u => u._id) };
     }
-    const total = await Wallet.countDocuments(filter);
-    const wallets = await Wallet.find(filter)
-      .populate('userId', 'firstName lastName email')
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit);
-    sendPaginated(res, wallets, total, page, limit);
+
+    // A user can have up to 3 wallet documents (main, funding, ib). Group by user
+    // so each student appears exactly ONCE in the admin wallet list.
+    const groupStage = {
+      _id: '$userId',
+      availableBalance: { $sum: { $ifNull: ['$availableBalance', 0] } },
+      pendingBalance: { $sum: { $ifNull: ['$pendingBalance', 0] } },
+      totalEarned: { $sum: { $ifNull: ['$totalEarned', 0] } },
+      totalWithdrawn: { $sum: { $ifNull: ['$totalWithdrawn', 0] } },
+      walletTypes: { $push: '$type' },
+      walletIds: { $push: '$_id' },
+      lastActivity: { $max: '$createdAt' },
+      isFrozen: { $max: { $cond: [{ $eq: ['$isFrozen', true] }, 1, 0] } },
+    };
+
+    const countResult = await Wallet.aggregate([
+      { $match: matchStage },
+      { $group: { _id: '$userId' } },
+      { $count: 'total' },
+    ]);
+    const total = countResult[0]?.total || 0;
+
+    const wallets = await Wallet.aggregate([
+      { $match: matchStage },
+      { $group: groupStage },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'userId',
+        },
+      },
+      { $unwind: '$userId' },
+      { $sort: { lastActivity: -1, _id: 1 } },
+      { $skip: (page - 1) * limit },
+      { $limit: limit },
+    ]);
+
+    const mapped = wallets.map((w) => ({
+      ...w,
+      id: w._id,
+      isFrozen: Boolean(w.isFrozen),
+      balance: w.availableBalance,
+    }));
+
+    sendPaginated(res, mapped, total, page, limit);
   } catch (error) { next(error); }
 };
 

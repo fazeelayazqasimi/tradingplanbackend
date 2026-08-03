@@ -209,7 +209,10 @@ exports.deleteSubscription = async (req, res, next) => {
 };
 
 const getActivationAmount = async () => {
-  return Math.max(0, Number(await Setting.getByKey('membership_price', 120)) || 0);
+  const raw = await Setting.getByKey('membership_price', 120);
+  const parsed = Number(raw);
+  const amount = Number.isFinite(parsed) && parsed > 0 ? parsed : 120;
+  return Math.max(0, amount);
 };
 
 /**
@@ -293,6 +296,7 @@ exports.activateWithPin = async (req, res, next) => {
     await coupon.save();
 
     const amount = await getActivationAmount();
+    if (amount <= 0) return sendError(res, 'Activation amount not configured. Please set the membership price in admin settings.', 400);
     const sub = await activateUserAndCreateSubscription(req.user._id, amount, 'pin', { couponCode: coupon.code, couponId: coupon._id });
 
     if (!coupon.noCommission) {
@@ -405,8 +409,11 @@ exports.activateByUpline = async (req, res, next) => {
 
     const amount = await getActivationAmount();
     if (amount <= 0) return sendError(res, 'Activation amount not configured. Please set the membership price in admin settings.', 400);
+    const uplineDiscount = Number(await Setting.getByKey('upline_activation_discount', 0));
+    const discountAmount = Math.round((amount * uplineDiscount) / 100);
+    const finalAmount = Math.max(0, amount - discountAmount);
     const fundingPercent = Number(await Setting.getByKey('funding_wallet_usage_percent', 20));
-    const maxFundingUsage = Math.round((amount * fundingPercent) / 100);
+    const maxFundingUsage = Math.round((finalAmount * fundingPercent) / 100);
 
     const result = await runInTransaction(async (session) => {
       const freshDownline = await User.findById(downline._id).select('isApproved subscriptionStatus').session(session);
@@ -430,7 +437,7 @@ exports.activateByUpline = async (req, res, next) => {
         }
       }
 
-      const remaining = amount - fundingUsed;
+      const remaining = finalAmount - fundingUsed;
       const mainWallet = await Wallet.findOne({ userId: req.user._id, type: 'main' }).session(session);
       if (!mainWallet || mainWallet.availableBalance < remaining) {
         throw businessError(`Insufficient balance. You need $${remaining.toFixed(2)} more in your main wallet.`, 400);
@@ -446,20 +453,20 @@ exports.activateByUpline = async (req, res, next) => {
 
       return activateUserAndCreateSubscription(
         downline._id,
-        amount,
+        finalAmount,
         'upline',
-        { activatedBy: req.user._id, activatedByName: `${req.user.firstName} ${req.user.lastName}`, fundingUsed, mainUsed: remaining, originalAmount: amount, fundingPercent },
+        { activatedBy: req.user._id, activatedByName: `${req.user.firstName} ${req.user.lastName}`, fundingUsed, mainUsed: remaining, originalAmount: amount, discountAmount, finalAmount, fundingPercent },
         'yearly',
         session
       );
     });
 
-    await payReferralCommission(downline._id, amount);
+    await payReferralCommission(downline._id, finalAmount);
 
     notifyStudentActivity({
       user: downline,
       action: 'account_activated',
-      details: { method: 'upline', amount, activated_by: `${req.user.firstName} ${req.user.lastName}` }
+      details: { method: 'upline', amount: finalAmount, discountAmount, activated_by: `${req.user.firstName} ${req.user.lastName}` }
     });
 
     sendAccountApprovedEmail(downline).catch((e) => console.error('[EMAIL] sendAccountApprovedEmail:', e.message));
@@ -467,8 +474,10 @@ exports.activateByUpline = async (req, res, next) => {
     sendSuccess(res, {
       subscription: result,
       downline: { _id: downline._id, firstName: downline.firstName, lastName: downline.lastName, email: downline.email },
+      discountAmount,
+      finalAmount,
       fundingUsed: result.metadata?.fundingUsed || 0,
-      mainUsed: result.metadata?.mainUsed || amount
+      mainUsed: result.metadata?.mainUsed || finalAmount
     }, `Member ${downline.firstName} ${downline.lastName} activated successfully`, 201);
   } catch (error) {
     if (error.status) return sendError(res, error.message, error.status);

@@ -215,7 +215,9 @@ exports.refresh = async (req, res, next) => {
 
 exports.getMe = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user._id).select('-password');
+    const user = await User.findById(req.user._id)
+      .select('-password')
+      .populate('referredBy', 'firstName lastName email referralCode');
     sendSuccess(res, user, 'Profile retrieved');
   } catch (error) {
     next(error);
