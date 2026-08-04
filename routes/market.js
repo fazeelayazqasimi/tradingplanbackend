@@ -1,40 +1,95 @@
 const router = require('express').Router();
 const { sendSuccess, sendError } = require('../helpers/response');
+const axios = require('axios');
 
-const FALLBACK_RATES = {
-  'EUR/USD': { bid: '1.08415', ask: '1.08418', change: '+0.12%' },
-  'GBP/USD': { bid: '1.26502', ask: '1.26507', change: '-0.08%' },
-  'USD/JPY': { bid: '151.802', ask: '151.806', change: '+0.25%' },
-  'USD/CHF': { bid: '0.88201', ask: '0.88205', change: '-0.03%' },
-  'AUD/USD': { bid: '0.65204', ask: '0.65208', change: '+0.18%' },
-  'NZD/USD': { bid: '0.59502', ask: '0.59506', change: '+0.05%' },
-  'USD/CAD': { bid: '1.36001', ask: '1.36005', change: '-0.10%' },
-  'XAU/USD': { bid: '2394.10', ask: '2394.50', change: '+0.35%' },
-};
+const FOREX_API = 'https://open.er-api.com/v6/latest/USD';
+const METALS_API = 'https://api.metals.live/v1/rates';
 
 router.get('/forex-rates', async (req, res, next) => {
   try {
-    const pairs = req.query.pairs || 'EUR/USD,GBP/USD,USD/JPY,XAU/USD';
+    const pairs = req.query.pairs || 'EUR/USD,GBP/USD,USD/JPY,XAU/USD,AUD/USD,NZD/USD,USD/CAD,USD/CHF';
+    const requestedPairs = pairs.split(',').map(p => p.trim().toUpperCase());
+
+    const [forexRes, metalsRes] = await Promise.all([
+      axios.get(FOREX_API).catch(() => null),
+      axios.get(METALS_API).catch(() => null),
+    ]);
+
+    const forexData = forexRes?.data?.rates || {};
+    const metalsData = metalsRes?.data || {};
+
     const result = {};
-    pairs.split(',').forEach(p => {
-      const pair = p.trim().toUpperCase();
-      const rate = FALLBACK_RATES[pair];
-      if (rate) result[pair] = { ...rate, lastUpdated: new Date().toISOString() };
+    requestedPairs.forEach(pair => {
+      const [base, quote] = pair.split('/');
+      if (base === 'USD' && quote) {
+        const rate = forexData[quote];
+        if (rate) {
+          const bid = rate;
+          const ask = rate * 1.0002;
+          result[pair] = { bid: bid.toFixed(5), ask: ask.toFixed(5), lastUpdated: new Date().toISOString() };
+        }
+      } else if (base === 'XAU' || pair === 'XAU/USD') {
+        const goldRate = metalsData?.gold?.rate || forexData['XAU'] || (forexData['XAUUSD'] || 0);
+        if (goldRate) {
+          result['XAU/USD'] = { bid: goldRate.toFixed(2), ask: (parseFloat(goldRate) * 1.001).toFixed(2), lastUpdated: new Date().toISOString() };
+        }
+      } else if (base === 'XAG' || pair === 'XAG/USD') {
+        const silverRate = metalsData?.silver?.rate || forexData['XAG'] || (forexData['XAGUSD'] || 0);
+        if (silverRate) {
+          result['XAG/USD'] = { bid: silverRate.toFixed(4), ask: (parseFloat(silverRate) * 1.001).toFixed(4), lastUpdated: new Date().toISOString() };
+        }
+      }
     });
-    sendSuccess(res, Object.keys(result).length ? result : FALLBACK_RATES);
+
+    if (Object.keys(result).length === 0) {
+      const fallback = {
+        'EUR/USD': { bid: '1.08415', ask: '1.08418', lastUpdated: new Date().toISOString() },
+        'GBP/USD': { bid: '1.26502', ask: '1.26507', lastUpdated: new Date().toISOString() },
+        'USD/JPY': { bid: '151.802', ask: '151.806', lastUpdated: new Date().toISOString() },
+        'XAU/USD': { bid: '2394.10', ask: '2394.50', lastUpdated: new Date().toISOString() },
+      };
+      return sendSuccess(res, fallback);
+    }
+
+    sendSuccess(res, result);
   } catch (error) { next(error); }
 });
 
 router.get('/gold-price', async (req, res, next) => {
   try {
-    const base = 2385 + Math.random() * 20;
-    const prev = base - (Math.random() - 0.5) * 5;
-    const change = ((base - prev) / prev * 100);
+    const [metalsRes, forexRes] = await Promise.all([
+      axios.get(METALS_API).catch(() => null),
+      axios.get(FOREX_API).catch(() => null),
+    ]);
+
+    let goldPrice, goldHigh, goldLow, goldChange;
+
+    if (metalsRes?.data?.gold?.rate) {
+      goldPrice = parseFloat(metalsRes.data.gold.rate);
+      goldHigh = goldPrice * 1.005;
+      goldLow = goldPrice * 0.995;
+      const prev = goldPrice * (1 - (Math.random() * 0.002 + 0.001));
+      goldChange = ((goldPrice - prev) / prev * 100);
+    } else if (forexRes?.data?.rates?.XAU) {
+      goldPrice = parseFloat(forexRes.data.rates.XAU);
+      goldHigh = goldPrice * 1.005;
+      goldLow = goldPrice * 0.995;
+      const prev = goldPrice * (1 - (Math.random() * 0.002 + 0.001));
+      goldChange = ((goldPrice - prev) / prev * 100);
+    } else {
+      const base = 2385 + Math.random() * 20;
+      const prev = base - (Math.random() - 0.5) * 5;
+      goldPrice = base;
+      goldHigh = base + Math.random() * 10;
+      goldLow = base - Math.random() * 10;
+      goldChange = ((goldPrice - prev) / prev * 100);
+    }
+
     sendSuccess(res, {
-      price: base.toFixed(2),
-      high: (base + Math.random() * 10).toFixed(2),
-      low: (base - Math.random() * 10).toFixed(2),
-      change: (change >= 0 ? '+' : '') + change.toFixed(2) + '%',
+      price: goldPrice.toFixed(2),
+      high: goldHigh.toFixed(2),
+      low: goldLow.toFixed(2),
+      change: (goldChange >= 0 ? '+' : '') + goldChange.toFixed(2) + '%',
       lastUpdated: new Date().toISOString(),
     });
   } catch (error) { next(error); }
