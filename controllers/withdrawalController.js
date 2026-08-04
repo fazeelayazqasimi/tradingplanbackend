@@ -25,10 +25,17 @@ exports.requestWithdrawal = async (req, res, next) => {
     const feeTypeSetting = await Setting.findOne({ key: 'withdrawal_fee_type' }).lean();
     const feePercentSetting = await Setting.findOne({ key: 'withdrawal_fee_percent' }).lean();
     const feeFixedSetting = await Setting.findOne({ key: 'withdrawal_fee_fixed' }).lean();
+    const maxPercentSetting = await Setting.findOne({ key: 'withdrawal_max_percent' }).lean();
 
     const feeType = feeTypeSetting?.value || 'percent';
     const feePercent = Math.max(0, Math.min(100, Number(feePercentSetting?.value) || 0));
     const feeFixed = Math.max(0, Number(feeFixedSetting?.value) || 0);
+    const maxPercent = Math.max(0, Math.min(100, Number(maxPercentSetting?.value) || 20));
+
+    const maxAllowed = parseFloat((wallet.availableBalance * maxPercent / 100).toFixed(2));
+    if (amount > maxAllowed) {
+      return sendError(res, `Withdrawal amount exceeds the maximum allowed (${maxPercent}% of available balance: $${maxAllowed})`, 400);
+    }
 
     let feeAmount;
     if (feeType === 'fixed') {
@@ -86,12 +93,14 @@ exports.getWithdrawalFeeInfo = async (req, res, next) => {
     const feeTypeSetting = await Setting.findOne({ key: 'withdrawal_fee_type' }).lean();
     const feePercentSetting = await Setting.findOne({ key: 'withdrawal_fee_percent' }).lean();
     const feeFixedSetting = await Setting.findOne({ key: 'withdrawal_fee_fixed' }).lean();
+    const maxPercentSetting = await Setting.findOne({ key: 'withdrawal_max_percent' }).lean();
 
     const feeType = feeTypeSetting?.value || 'percent';
     const feePercent = Math.max(0, Math.min(100, Number(feePercentSetting?.value) || 0));
     const feeFixed = Math.max(0, Number(feeFixedSetting?.value) || 0);
+    const maxPercent = Math.max(0, Math.min(100, Number(maxPercentSetting?.value) || 20));
 
-    sendSuccess(res, { feeType, feePercent, feeFixed, processingHours: 24 });
+    sendSuccess(res, { feeType, feePercent, feeFixed, maxPercent, processingHours: 24 });
   } catch (error) { next(error); }
 };
 

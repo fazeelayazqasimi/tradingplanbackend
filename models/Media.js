@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const mediaSchema = new mongoose.Schema({
   title: { type: String, required: true, maxlength: 200 },
   images: [{ type: String }],
+  videos: [{ type: String }],
   isPublished: { type: Boolean, default: true },
   uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 }, { timestamps: true });

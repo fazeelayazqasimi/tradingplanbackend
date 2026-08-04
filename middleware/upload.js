@@ -121,13 +121,14 @@ const uploadMedia = multer({
       cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
     },
   }),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowed = /jpeg|jpg|png|gif|webp/;
-    const extname = allowed.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = file.mimetype.startsWith("image/");
+    const allowedImage = /jpeg|jpg|png|gif|webp/;
+    const allowedVideo = /mp4|webm|mov|avi|mkv|flv|wmv/;
+    const extname = allowedImage.test(path.extname(file.originalname).toLowerCase()) || allowedVideo.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = file.mimetype.startsWith("image/") || file.mimetype.startsWith("video/");
     if (extname && mimetype) return cb(null, true);
-    cb(new Error("Only image files (jpeg, jpg, png, gif, webp) are allowed"), false);
+    cb(new Error("Only image (jpeg, jpg, png, gif, webp) and video (mp4, webm, mov, avi, mkv, flv, wmv) files are allowed"), false);
   },
 });
 

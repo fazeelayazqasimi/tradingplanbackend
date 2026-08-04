@@ -5,8 +5,8 @@ const { uploadMedia } = require('../middleware/upload');
 
 router.get('/', protect, authorize('admin'), getAll);
 router.get('/published', getPublished);
-router.post('/', protect, authorize('admin'), uploadMedia.array('images', 10), create);
-router.put('/:id', protect, authorize('admin'), uploadMedia.array('images', 10), update);
+router.post('/', protect, authorize('admin'), uploadMedia.array('media', 10), create);
+router.put('/:id', protect, authorize('admin'), uploadMedia.array('media', 10), update);
 router.delete('/:id', protect, authorize('admin'), remove);
 
 module.exports = router;

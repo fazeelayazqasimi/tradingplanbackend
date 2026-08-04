@@ -28,11 +28,13 @@ exports.create = async (req, res, next) => {
   try {
     const { title } = req.body;
     if (!title) return sendError(res, 'Title is required', 400);
-    const imagePaths = (req.files || []).map(f => f.path.replace(/\\/g, '/'));
-    if (imagePaths.length === 0) return sendError(res, 'At least one image is required', 400);
+    const imagePaths = (req.files || []).filter(f => f.mimetype.startsWith('image/')).map(f => f.path.replace(/\\/g, '/'));
+    const videoPaths = (req.files || []).filter(f => f.mimetype.startsWith('video/')).map(f => f.path.replace(/\\/g, '/'));
+    if (imagePaths.length === 0 && videoPaths.length === 0) return sendError(res, 'At least one image or video is required', 400);
     const media = await Media.create({
       title,
       images: imagePaths,
+      videos: videoPaths,
       uploadedBy: req.user._id,
     });
     sendSuccess(res, media, 'Media created', 201);
@@ -45,12 +47,18 @@ exports.update = async (req, res, next) => {
     if (!media) return sendError(res, 'Media not found', 404);
     if (req.body.title) media.title = req.body.title;
     if (req.files && req.files.length > 0) {
-      const newImages = req.files.map(f => f.path.replace(/\\/g, '/'));
+      const newImages = req.files.filter(f => f.mimetype.startsWith('image/')).map(f => f.path.replace(/\\/g, '/'));
+      const newVideos = req.files.filter(f => f.mimetype.startsWith('video/')).map(f => f.path.replace(/\\/g, '/'));
       media.images = media.images.concat(newImages);
+      media.videos = media.videos.concat(newVideos);
     }
     if (req.body.removeImages) {
       const remove = JSON.parse(req.body.removeImages);
       media.images = media.images.filter(img => !remove.includes(img));
+    }
+    if (req.body.removeVideos) {
+      const remove = JSON.parse(req.body.removeVideos);
+      media.videos = media.videos.filter(vid => !remove.includes(vid));
     }
     await media.save();
     sendSuccess(res, media, 'Media updated');

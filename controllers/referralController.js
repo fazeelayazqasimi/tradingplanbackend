@@ -31,8 +31,8 @@ async function processPendingForUser(userId) {
 exports.getReferralStats = async (req, res, next) => {
   try {
     await processPendingForUser(req.user._id);
-    const directCount = await Referral.countDocuments({ referrerId: req.user._id, level: 1 });
-    const indirectCount = await Referral.countDocuments({ referrerId: req.user._id, level: { $gte: 2 } });
+    const directCount = await Referral.countDocuments({ referrerId: req.user._id, level: 1, status: { $in: ['converted', 'paid'] } });
+    const indirectCount = await Referral.countDocuments({ referrerId: req.user._id, level: { $gte: 2 }, status: { $in: ['converted', 'paid'] } });
     const earnings = await Referral.aggregate([
       { $match: { referrerId: req.user._id, status: { $in: ['converted', 'paid'] } } },
       { $group: { _id: null, total: { $sum: '$commissionAmount' } } },
@@ -134,6 +134,9 @@ exports.getReferralTree = async (req, res, next) => {
         totalDirect: direct.length,
         totalIndirect: indirect.length,
         totalReferrals: direct.length + indirect.length,
+        totalDownline: direct.length + indirect.length,
+        active: activeMembers,
+        free: allRefs.length - activeMembers,
         totalCommission: Math.round(totalCommission * 100) / 100,
         activeMembers,
         freeMembers: allRefs.length - activeMembers,

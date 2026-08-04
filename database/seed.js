@@ -111,6 +111,7 @@ const seed = async () => {
       { key: 'withdrawal_fee_type', value: 'percent', category: 'withdrawal', description: 'Fee type: percent or fixed' },
       { key: 'withdrawal_fee_percent', value: 10, category: 'withdrawal', description: 'Withdrawal fee percentage (0-100)' },
       { key: 'withdrawal_fee_fixed', value: 0, category: 'withdrawal', description: 'Fixed withdrawal fee amount ($)' },
+      { key: 'withdrawal_max_percent', value: 20, category: 'withdrawal', description: 'Maximum withdrawal as percentage of available balance per request' },
       { key: 'broker_share_percent', value: 20, category: 'trading', description: 'Broker share in profit distribution' },
       { key: 'trader_share_percent', value: 30, category: 'trading', description: 'Trader share in profit distribution' },
       { key: 'network_share_percent', value: 50, category: 'trading', description: 'Network share in profit distribution' },
