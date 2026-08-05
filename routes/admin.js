@@ -1,8 +1,8 @@
-const router = require('express').Router();
 const { getDashboard, getRevenueReport, getActivityLogs, getReferrals, getReferralStats, getReferralTree, getReferralById } = require('../controllers/adminController');
 const { protect, authorize } = require('../middleware/auth');
 const { sendSuccess, sendError } = require('../helpers/response');
 const { bulkDeleteValidator, idValidator } = require('../validators/generalValidators');
+const { backup, importBackup, deleteAll, getStats } = require('../controllers/backupController');
 
 const bulkModels = {
   user: require('../models/User'),
@@ -50,6 +50,11 @@ router.post('/bulk-delete', async (req, res, next) => {
     sendSuccess(res, { deletedCount: result.deletedCount }, `${result.deletedCount} record(s) deleted`);
   } catch (error) { next(error); }
 });
+
+router.get('/backup/stats', getStats);
+router.get('/backup', backup);
+router.post('/backup/import', importBackup);
+router.delete('/backup/all', deleteAll);
 
 // Webinar CRUD
 const { getWebinars, getWebinar, createWebinar, updateWebinar, deleteWebinar } = require('../controllers/webinarController');
