@@ -73,7 +73,7 @@ const walletSchema = new mongoose.Schema({
   },
   minimumWithdrawal: {
     type: Number,
-    default: 50,
+    default: 30,
     min: [0, 'Minimum withdrawal cannot be negative']
   },
   isFrozen: {

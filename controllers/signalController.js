@@ -13,7 +13,6 @@ exports.getSignals = async (req, res, next) => {
     const action = req.query.action;
     const symbol = req.query.symbol;
     const filter = {};
-    if (req.user?.role !== 'admin') filter.isPublished = true;
     if (status) filter.status = status;
     if (action) filter.action = action;
     if (symbol) filter.symbol = { $regex: symbol, $options: 'i' };
