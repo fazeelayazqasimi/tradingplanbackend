@@ -224,10 +224,19 @@ const getReferralTree = async (userId) => {
     .lean();
 
   const direct = allReferrals.filter(r => r.level === 1);
-  const indirect = allReferrals.filter(r => r.level > 1);
+  const directReferralUserIds = direct.map(d => d.referredUserId._id ? d.referredUserId._id.toString() : d.referredUserId);
+  const indirectSet = new Set();
+  for (const directUserId of directReferralUserIds) {
+    const childRefs = await Referral.find({ referrerId: directUserId }).lean();
+    for (const childRef of childRefs) {
+      indirectSet.add(childRef.referredUserId.toString());
+    }
+  }
+
+  const indirect = allReferrals.filter(r => indirectSet.has(r.referredUserId._id ? r.referredUserId._id.toString() : r.referredUserId));
 
   const directCount = direct.length;
-  const indirectCount = indirect.length;
+  const indirectCount = indirectSet.size;
   const totalCommission = allReferrals.reduce((sum, r) => sum + (r.commissionAmount || 0), 0);
 
   return {

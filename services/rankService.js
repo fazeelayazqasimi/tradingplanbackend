@@ -102,24 +102,25 @@ const getRankQualification = async (userId, { requiredRankName = null, qualified
 
 const updateRankStats = async (userRankDoc, userId) => {
   try {
-    const refStats = await Referral.aggregate([
-      { $match: { referrerId: new mongoose.Types.ObjectId(userId), status: { $in: ACTIVE_REFERRAL_STATUSES } } },
-      {
-        $group: {
-          _id: null,
-          total: { $sum: 1 },
-          indirect: { $sum: { $cond: [{ $gte: ['$level', 2] }, 1, 0] } },
-          revenue: { $sum: { $ifNull: ['$conversionAmount', 0] } },
-          commission: { $sum: { $ifNull: ['$commissionAmount', 0] } }
-        }
-      }
-    ]);
+    const allRefs = await Referral.find({ referrerId: new mongoose.Types.ObjectId(userId), status: { $in: ACTIVE_REFERRAL_STATUSES } }).lean();
+    const directCount = allRefs.filter(r => r.level === 1).length;
 
-    const stats = refStats[0] || {};
-    userRankDoc.totalReferrals = stats.total || 0;
-    userRankDoc.indirectReferrals = stats.indirect || 0;
-    userRankDoc.totalRevenue = stats.revenue || 0;
-    userRankDoc.totalCommission = stats.commission || 0;
+    const directReferralUserIds = allRefs.filter(r => r.level === 1).map(r => r.referredUserId.toString());
+    const indirectSet = new Set();
+    for (const directUserId of directReferralUserIds) {
+      const childRefs = await Referral.find({ referrerId: new mongoose.Types.ObjectId(directUserId) }).lean();
+      for (const childRef of childRefs) {
+        indirectSet.add(childRef.referredUserId.toString());
+      }
+    }
+
+    const totalRevenue = allRefs.reduce((sum, r) => sum + (r.conversionAmount || 0), 0);
+    const totalCommission = allRefs.reduce((sum, r) => sum + (r.commissionAmount || 0), 0);
+
+    userRankDoc.totalReferrals = allRefs.length;
+    userRankDoc.indirectReferrals = indirectSet.size;
+    userRankDoc.totalRevenue = totalRevenue;
+    userRankDoc.totalCommission = totalCommission;
   } catch (e) {
     console.error('[RANK] updateRankStats error:', e.message);
   }

@@ -32,7 +32,22 @@ exports.getReferralStats = async (req, res, next) => {
   try {
     await processPendingForUser(req.user._id);
     const directCount = await Referral.countDocuments({ referrerId: req.user._id, level: 1 });
-    const indirectCount = await Referral.countDocuments({ referrerId: req.user._id, level: { $gte: 2 } });
+
+    const allRefs = await Referral.find({ referrerId: req.user._id }).lean();
+    const directReferralUserIds = allRefs.filter(r => r.level === 1).map(r => r.referredUserId.toString());
+
+    let indirectCount = 0;
+    const counted = new Set();
+    for (const directUserId of directReferralUserIds) {
+      const childRefs = await Referral.find({ referrerId: directUserId }).lean();
+      for (const childRef of childRefs) {
+        if (!counted.has(childRef.referredUserId.toString())) {
+          counted.add(childRef.referredUserId.toString());
+          indirectCount++;
+        }
+      }
+    }
+
     const earnings = await Referral.aggregate([
       { $match: { referrerId: req.user._id, status: { $in: ['converted', 'paid'] } } },
       { $group: { _id: null, total: { $sum: '$commissionAmount' } } },
@@ -108,7 +123,16 @@ exports.getReferralTree = async (req, res, next) => {
       createdAt: r.createdAt,
     }));
 
-    const indirect = allRefs.filter(r => (r.level || 1) > 1).map(r => ({
+    const directReferralUserIds = direct.map(d => d.user._id.toString());
+    const indirectSet = new Set();
+    for (const directUserId of directReferralUserIds) {
+      const childRefs = await Referral.find({ referrerId: directUserId }).lean();
+      for (const childRef of childRefs) {
+        indirectSet.add(childRef.referredUserId.toString());
+      }
+    }
+
+    const indirect = allRefs.filter(r => indirectSet.has(r.referredUserId._id ? r.referredUserId._id.toString() : r.referredUserId)).map(r => ({
       _id: r._id,
       user: r.referredUserId,
       level: r.level || 2,
@@ -132,9 +156,9 @@ exports.getReferralTree = async (req, res, next) => {
       indirect,
       stats: {
         totalDirect: direct.length,
-        totalIndirect: indirect.length,
-        totalReferrals: direct.length + indirect.length,
-        totalDownline: direct.length + indirect.length,
+        totalIndirect: indirectSet.size,
+        totalReferrals: direct.length + indirectSet.size,
+        totalDownline: direct.length + indirectSet.size,
         active: activeMembers,
         free: allRefs.length - activeMembers,
         totalCommission: Math.round(totalCommission * 100) / 100,
