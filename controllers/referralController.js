@@ -66,9 +66,12 @@ exports.getReferralStats = async (req, res, next) => {
       { $group: { _id: null, total: { $sum: '$amount' } } },
     ]);
 
+    const totalReferrals = directCount + indirectCount + freeMembers;
+
     sendSuccess(res, {
       directReferrals: directCount,
       indirectReferrals: indirectCount,
+      totalReferrals,
       totalEarnings: earnings[0]?.total || 0,
       pendingCommission: pendingCommissions[0]?.total || 0,
       pendingReferrals: pendingCount,
