@@ -4,7 +4,9 @@ const UserRank = require('../models/UserRank');
 const Rank = require('../models/Rank');
 const Wallet = require('../models/Wallet');
 const Coupon = require('../models/Coupon');
+const Referral = require('../models/Referral');
 const Setting = require('../models/Setting');
+const { REFERRAL_STATUSES } = require('../utils/constants');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions } = require('../helpers/pagination');
 const { sendAccountApprovedEmail } = require('../services/emailService');
@@ -301,6 +303,23 @@ exports.activateWithPin = async (req, res, next) => {
 
     if (!coupon.noCommission) {
       await payReferralCommission(req.user._id, amount);
+    } else {
+      // No-commission PIN: permanently close any pending level-1 referral so
+      // the deferred processPendingForUser() path can never pay it out later.
+      await Referral.updateMany(
+        { referredUserId: req.user._id, level: 1, status: REFERRAL_STATUSES.PENDING },
+        {
+          $set: {
+            status: REFERRAL_STATUSES.CONVERTED,
+            commissionAmount: 0,
+            commissionPaid: 0,
+            commissionPaidAt: null,
+            conversionType: 'subscription',
+            conversionAmount: amount,
+            notes: 'No-commission PIN activation'
+          }
+        }
+      );
     }
 
     const user = await User.findById(req.user._id);
