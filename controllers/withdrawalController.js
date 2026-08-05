@@ -19,7 +19,9 @@ exports.requestWithdrawal = async (req, res, next) => {
 
     const wallet = await Wallet.findOne({ userId: req.user._id, type: 'main' });
     if (!wallet || wallet.availableBalance < amount) return sendError(res, 'Insufficient balance in main wallet', 400);
-    if (amount < (wallet.minimumWithdrawal || 30)) return sendError(res, `Minimum withdrawal amount is $${wallet.minimumWithdrawal || 30}. You entered $${amount}`, 400);
+    const minAmountSetting = await Setting.findOne({ key: 'withdrawal_min_amount' }).lean();
+    const minAmount = Number(minAmountSetting?.value) || 30;
+    if (amount < minAmount) return sendError(res, `Minimum withdrawal amount is $${minAmount}. You entered $${amount}`, 400);
 
     const maxAmountSetting = await Setting.findOne({ key: 'withdrawal_max_amount' }).lean();
     const maxAmount = maxAmountSetting?.value || null;
