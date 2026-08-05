@@ -6,7 +6,7 @@ const requestWithdrawalValidator = [
     .withMessage('Amount must be a number')
     .custom((value) => {
       if (parseFloat(value) < 30) {
-        throw new Error('Amount must be at least 30');
+        throw new Error('Amount must be at least $30 (minimum withdrawal limit)');
       }
       return true;
     }),
