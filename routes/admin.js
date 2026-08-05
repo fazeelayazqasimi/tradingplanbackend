@@ -4,6 +4,8 @@ const { sendSuccess, sendError } = require('../helpers/response');
 const { bulkDeleteValidator, idValidator } = require('../validators/generalValidators');
 const { backup, importBackup, deleteAll, getStats } = require('../controllers/backupController');
 
+const router = require('express').Router();
+
 const bulkModels = {
   user: require('../models/User'),
   course: require('../models/Course'),
