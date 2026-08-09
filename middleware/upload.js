@@ -170,4 +170,22 @@ const uploadVideo = multer({
   },
 });
 
-module.exports = { uploadAvatar, uploadCourse, uploadResource, uploadLogo: uploadBranding, uploadBranding, uploadMedia, uploadVideo, uploadDepositScreenshot };
+const uploadDocument = multer({
+  storage: useCloudinary ? mediaStorage : multer.diskStorage({
+    destination: (req, file, cb) => cb(null, path.join(UPLOAD_BASE, 'media')),
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname);
+      cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
+    },
+  }),
+  limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = /pdf|doc|docx|ppt|pptx|xls|xlsx|txt/;
+    const extname = allowed.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = /pdf|msword|ms-excel|powerpoint|text/.test(file.mimetype);
+    if (extname) return cb(null, true);
+    cb(new Error('Only documents are allowed (pdf, doc, docx, ppt, pptx, xls, xlsx, txt)'), false);
+  },
+});
+
+module.exports = { uploadAvatar, uploadCourse, uploadResource, uploadLogo: uploadBranding, uploadBranding, uploadMedia, uploadVideo, uploadDepositScreenshot, uploadDocument };

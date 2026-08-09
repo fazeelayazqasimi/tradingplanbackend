@@ -13,6 +13,11 @@ const announcementSchema = new mongoose.Schema({
     trim: true,
     maxlength: [10000, 'Content cannot exceed 10000 characters']
   },
+  image: {
+    type: String,
+    trim: true,
+    default: null
+  },
   type: {
     type: String,
     enum: {

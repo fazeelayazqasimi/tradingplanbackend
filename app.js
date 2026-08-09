@@ -117,6 +117,7 @@ app.use('/api/brokers', require('./routes/brokers'));
 app.use('/api/crm', require('./routes/crm'));
 app.use('/api/media', require('./routes/media'));
 app.use('/api/classes', require('./routes/classes'));
+app.use('/api/business-profiles', require('./routes/businessProfiles'));
 
 const { errorHandler, notFound } = require('./middleware/error');
 app.use(notFound);

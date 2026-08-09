@@ -22,6 +22,14 @@ exports.getAnnouncement = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+exports.uploadImage = async (req, res, next) => {
+  try {
+    if (!req.file) return sendError(res, 'No image uploaded', 400);
+    const url = req.file.path || `/uploads/media/${req.file.filename}`;
+    sendSuccess(res, { url }, 'Image uploaded', 201);
+  } catch (error) { next(error); }
+};
+
 exports.createAnnouncement = async (req, res, next) => {
   try {
     const announcement = await Announcement.create({ ...req.body, authorId: req.user._id });
