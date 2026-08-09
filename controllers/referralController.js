@@ -6,6 +6,10 @@ const { sendSuccess, sendError, sendPaginated } = require('../helpers/response')
 const { getPaginationOptions } = require('../helpers/pagination');
 const { processReferralCommission } = require('../services/referralService');
 
+const USER_SELECT = 'firstName lastName email createdAt isApproved subscriptionStatus';
+
+const isActiveMember = (u) => !!(u && u.isApproved && u.subscriptionStatus === 'active');
+
 exports.getMyReferralCode = async (req, res, next) => {
   try {
     const user = await User.findById(req.user._id).select('referralCode');
@@ -28,25 +32,112 @@ async function processPendingForUser(userId) {
   }
 }
 
+/**
+ * BFS over level-1 referral links starting from `userId`.
+ * Cycle-safe via visited set; returns every downline member tagged with depth
+ * (1 = direct, 2+ = indirect). No depth cap, so full downline is always counted.
+ */
+async function getDownlineMembers(userId) {
+  const members = [];
+  const visited = new Set();
+  const directRefs = await Referral.find({ referrerId: userId, level: 1 })
+    .populate('referredUserId', USER_SELECT)
+    .lean();
+  let frontier = [];
+  for (const ref of directRefs) {
+    if (!ref.referredUserId) continue;
+    const id = ref.referredUserId._id.toString();
+    if (!visited.has(id)) {
+      visited.add(id);
+      members.push({ ref, depth: 1 });
+      frontier.push(id);
+    }
+  }
+  let depth = 1;
+  while (frontier.length > 0) {
+    depth++;
+    const children = await Referral.find({ referrerId: { $in: frontier }, level: 1 })
+      .populate('referredUserId', USER_SELECT)
+      .lean();
+    const next = [];
+    for (const ref of children) {
+      if (!ref.referredUserId) continue;
+      const id = ref.referredUserId._id.toString();
+      if (!visited.has(id)) {
+        visited.add(id);
+        members.push({ ref, depth });
+        next.push(id);
+      }
+    }
+    frontier = next;
+  }
+  return members;
+}
+
+/**
+ * Climb the referral chain from `targetId` up to `maxHops` levels to verify
+ * it belongs to `rootId`'s downline (or is root itself).
+ */
+async function isInDownline(rootId, targetId, maxHops = 50) {
+  if (!targetId) return false;
+  if (rootId.toString() === targetId.toString()) return true;
+  let current = targetId.toString();
+  for (let i = 0; i < maxHops; i++) {
+    const ref = await Referral.findOne({ referredUserId: current }).select('referrerId').lean();
+    if (!ref) return false;
+    if (ref.referrerId.toString() === rootId.toString()) return true;
+    current = ref.referrerId.toString();
+  }
+  return false;
+}
+
+const mapReferral = (ref, level) => ({
+  _id: ref._id,
+  user: ref.referredUserId,
+  level,
+  status: ref.status,
+  commission: ref.commissionAmount,
+  conversionType: ref.conversionType,
+  conversionAmount: ref.conversionAmount,
+  createdAt: ref.createdAt,
+});
+
+/**
+ * Returns one level of children for a user (lazy tree expansion),
+ * each node carrying its own child count.
+ */
+async function buildChildren(userId) {
+  const refs = await Referral.find({ referrerId: userId, level: 1 })
+    .populate('referredUserId', USER_SELECT)
+    .sort({ createdAt: -1 })
+    .lean();
+  const ids = refs.filter(r => r.referredUserId).map(r => r.referredUserId._id);
+  const countByUser = new Map();
+  if (ids.length > 0) {
+    const counts = await Referral.aggregate([
+      { $match: { referrerId: { $in: ids }, level: 1 } },
+      { $group: { _id: '$referrerId', count: { $sum: 1 } } },
+    ]);
+    for (const c of counts) countByUser.set(c._id.toString(), c.count);
+  }
+  return refs
+    .filter(r => r.referredUserId)
+    .map(ref => ({
+      ...mapReferral(ref, 1),
+      childCount: countByUser.get(ref.referredUserId._id.toString()) || 0,
+    }));
+}
+
 exports.getReferralStats = async (req, res, next) => {
   try {
     await processPendingForUser(req.user._id);
-    const directCount = await Referral.countDocuments({ referrerId: req.user._id, level: 1 });
 
-    const allRefs = await Referral.find({ referrerId: req.user._id }).lean();
-    const directReferralUserIds = allRefs.filter(r => r.level === 1).map(r => r.referredUserId.toString());
-
-    let indirectCount = 0;
-    const counted = new Set();
-    for (const directUserId of directReferralUserIds) {
-      const childRefs = await Referral.find({ referrerId: directUserId }).lean();
-      for (const childRef of childRefs) {
-        if (!counted.has(childRef.referredUserId.toString())) {
-          counted.add(childRef.referredUserId.toString());
-          indirectCount++;
-        }
-      }
-    }
+    const members = await getDownlineMembers(req.user._id);
+    const directCount = members.filter(m => m.depth === 1).length;
+    const indirectCount = members.filter(m => m.depth >= 2).length;
+    const totalDownline = members.length;
+    const activeMembers = members.filter(m => isActiveMember(m.ref.referredUserId)).length;
+    const freeMembers = totalDownline - activeMembers;
 
     const earnings = await Referral.aggregate([
       { $match: { referrerId: req.user._id, status: { $in: ['converted', 'paid'] } } },
@@ -58,102 +149,49 @@ exports.getReferralStats = async (req, res, next) => {
     ]);
     const pendingCount = await Referral.countDocuments({ referrerId: req.user._id, status: 'pending' });
     const activeCount = await Referral.countDocuments({ referrerId: req.user._id, status: { $in: ['converted', 'paid'] } });
-    const activeMembers = await Referral.countDocuments({ referrerId: req.user._id, level: 1, status: { $in: ['converted', 'paid'] } });
-    const freeMembers = await Referral.countDocuments({ referrerId: req.user._id, status: 'pending' });
 
     const freeRegEarnings = await WalletTransaction.aggregate([
       { $match: { userId: req.user._id, category: 'registration' } },
       { $group: { _id: null, total: { $sum: '$amount' } } },
     ]);
 
-    const totalReferrals = directCount + indirectCount + freeMembers;
-
     sendSuccess(res, {
       directReferrals: directCount,
       indirectReferrals: indirectCount,
-      totalReferrals,
+      totalReferrals: totalDownline,
+      totalTeam: totalDownline,
+      totalDownline,
       totalEarnings: earnings[0]?.total || 0,
       pendingCommission: pendingCommissions[0]?.total || 0,
       pendingReferrals: pendingCount,
       activeReferrals: activeCount,
       activeMembers,
       freeMembers,
+      active: activeMembers,
+      free: freeMembers,
       freeRegistrationEarnings: freeRegEarnings[0]?.total || 0,
     });
   } catch (error) { next(error); }
 };
 
-async function buildTree(userId, currentLevel = 1, maxDepth = 10) {
-  if (currentLevel > maxDepth || !userId) return [];
-  const referrals = await Referral.find({ referrerId: userId, level: 1 })
-    .populate('referredUserId', 'firstName lastName email createdAt isApproved subscriptionStatus')
-    .lean();
-  const nodes = [];
-  for (const ref of referrals) {
-    if (!ref.referredUserId) continue;
-    const children = await buildTree(ref.referredUserId._id, currentLevel + 1, maxDepth);
-    nodes.push({
-      _id: ref._id,
-      user: ref.referredUserId,
-      level: currentLevel,
-      status: ref.status,
-      commission: ref.commissionAmount,
-      conversionType: ref.conversionType,
-      conversionAmount: ref.conversionAmount,
-      createdAt: ref.createdAt,
-      children
-    });
-  }
-  return nodes;
-}
-
 exports.getReferralTree = async (req, res, next) => {
   try {
     await processPendingForUser(req.user._id);
-    const tree = await buildTree(req.user._id);
 
-    const allRefs = await Referral.find({ referrerId: req.user._id })
-      .populate('referredUserId', 'firstName lastName email createdAt isApproved subscriptionStatus')
-      .sort({ createdAt: -1 })
-      .lean();
+    // Root + first level only; deeper branches are loaded lazily via /tree/:userId
+    const tree = await buildChildren(req.user._id);
 
-    const direct = allRefs.filter(r => (r.level || 1) === 1).map(r => ({
-      _id: r._id,
-      user: r.referredUserId,
-      level: r.level || 1,
-      status: r.status,
-      commission: r.commissionAmount,
-      conversionType: r.conversionType,
-      conversionAmount: r.conversionAmount,
-      createdAt: r.createdAt,
-    }));
+    const members = await getDownlineMembers(req.user._id);
+    const direct = members.filter(m => m.depth === 1).map(m => mapReferral(m.ref, 1));
+    const indirect = members.filter(m => m.depth >= 2).map(m => mapReferral(m.ref, m.depth));
 
-    const directReferralUserIds = direct.map(d => d.user._id.toString());
-    const indirectSet = new Set();
-    for (const directUserId of directReferralUserIds) {
-      const childRefs = await Referral.find({ referrerId: directUserId }).lean();
-      for (const childRef of childRefs) {
-        indirectSet.add(childRef.referredUserId.toString());
-      }
-    }
+    const commissionAgg = await Referral.aggregate([
+      { $match: { referrerId: req.user._id } },
+      { $group: { _id: null, total: { $sum: '$commissionAmount' } } },
+    ]);
 
-    const indirect = allRefs.filter(r => indirectSet.has(r.referredUserId._id ? r.referredUserId._id.toString() : r.referredUserId)).map(r => ({
-      _id: r._id,
-      user: r.referredUserId,
-      level: r.level || 2,
-      status: r.status,
-      commission: r.commissionAmount,
-      conversionType: r.conversionType,
-      conversionAmount: r.conversionAmount,
-      createdAt: r.createdAt,
-    }));
-
-    const totalCommission = allRefs.reduce((sum, r) => sum + (r.commissionAmount || 0), 0);
-
-    const activeMembers = allRefs.filter((r) => {
-      const u = r.referredUserId;
-      return u && (u.isApproved || u.subscriptionStatus === 'active');
-    }).length;
+    const totalDownline = members.length;
+    const active = members.filter(m => isActiveMember(m.ref.referredUserId)).length;
 
     sendSuccess(res, {
       tree,
@@ -161,16 +199,27 @@ exports.getReferralTree = async (req, res, next) => {
       indirect,
       stats: {
         totalDirect: direct.length,
-        totalIndirect: indirectSet.size,
-        totalReferrals: direct.length + indirectSet.size,
-        totalDownline: direct.length + indirectSet.size,
-        active: activeMembers,
-        free: allRefs.length - activeMembers,
-        totalCommission: Math.round(totalCommission * 100) / 100,
-        activeMembers,
-        freeMembers: allRefs.length - activeMembers,
+        totalIndirect: indirect.length,
+        totalReferrals: totalDownline,
+        totalDownline,
+        active,
+        free: totalDownline - active,
+        totalCommission: Math.round((commissionAgg[0]?.total || 0) * 100) / 100,
+        activeMembers: active,
+        freeMembers: totalDownline - active,
       },
     });
+  } catch (error) { next(error); }
+};
+
+exports.getReferralChildren = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    if (!userId) return sendError(res, 'User ID is required', 400);
+    const allowed = await isInDownline(req.user._id, userId);
+    if (!allowed) return sendError(res, 'Not authorized to view this branch', 403);
+    const nodes = await buildChildren(userId);
+    sendSuccess(res, { nodes });
   } catch (error) { next(error); }
 };
 
