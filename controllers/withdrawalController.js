@@ -17,6 +17,10 @@ exports.requestWithdrawal = async (req, res, next) => {
     if (method !== 'usdt_bep20') return sendError(res, 'Only USDT BEP20 withdrawals are supported', 400);
     if (!walletAddress || !walletAddress.trim()) return sendError(res, 'Wallet address is required', 400);
 
+    if (req.user.subscriptionStatus !== 'active') {
+      return sendError(res, 'Your account must be activated before you can withdraw. Activate your membership to unlock withdrawals.', 403);
+    }
+
     const wallet = await Wallet.findOne({ userId: req.user._id, type: 'main' });
     if (!wallet || wallet.availableBalance < amount) return sendError(res, 'Insufficient balance in main wallet', 400);
     const minAmountSetting = await Setting.findOne({ key: 'withdrawal_min_amount' }).lean();
