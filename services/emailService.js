@@ -75,6 +75,11 @@ const buildTemplate = (title, bodyContent, instituteName = 'The 4x Hub') => {
 const sendEmail = async ({ to, subject, html, fromName }) => {
   const configStr = `host=${process.env.EMAIL_HOST}:${process.env.EMAIL_PORT || 587} user=${process.env.EMAIL_USER}`;
   try {
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+      const msg = 'EMAIL_USER / EMAIL_PASS are not configured in the environment';
+      logEmail('error', `${msg} — cannot send to ${to}: "${subject}"`);
+      return { success: false, error: msg };
+    }
     let name = fromName;
     if (!name) {
       try { name = await Setting.getByKey('institute_name', 'The 4x Hub'); } catch { name = 'The 4x Hub'; }
@@ -466,6 +471,28 @@ const sendOTPEmail = async (email, otp) => {
   });
 };
 
+const sendWithdrawalOTPEmail = async (email, otp) => {
+  const name = await getBrandName();
+  const html = buildTemplate('Withdrawal Verification OTP', `
+    <h2 style="margin:0 0 16px 0;color:#1f2937;font-size:20px;">Withdrawal Request Verification</h2>
+    <p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.6;">
+      You requested to withdraw funds from your wallet. Use the one-time verification code below to confirm your withdrawal request:
+    </p>
+    <div style="text-align:center;margin:24px 0;padding:16px;background-color:#f0f4ff;border:1px solid #bfdbfe;border-radius:8px;">
+      <span style="font-size:36px;font-weight:700;color:#2563eb;letter-spacing:8px;">${otp}</span>
+    </div>
+    <p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.6;">
+      This code will expire in 10 minutes. If you did not request a withdrawal, please ignore this email and contact support immediately.
+    </p>
+  `, name);
+
+  return sendEmail({
+    to: email,
+    subject: `Withdrawal Verification OTP - ${name}`,
+    html
+  });
+};
+
 const sendScheduleEmail = async (student, crmRecord) => {
   const name = await getBrandName();
   const days = crmRecord.schedule?.days?.join(', ') || 'Not set';
@@ -635,6 +662,7 @@ module.exports = {
   sendCourseEnrollmentPendingEmail,
   sendAccountDeactivatedEmail,
   sendOTPEmail,
+  sendWithdrawalOTPEmail,
   sendScheduleEmail,
   sendClassPublishedEmail,
   sendDepositRequestEmail,

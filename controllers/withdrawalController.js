@@ -1,17 +1,60 @@
 const Withdrawal = require('../models/Withdrawal');
 const Wallet = require('../models/Wallet');
 const WalletTransaction = require('../models/WalletTransaction');
+const TempOTP = require('../models/TempOTP');
 const Setting = require('../models/Setting');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions } = require('../helpers/pagination');
-const { sendWithdrawalApprovedEmail } = require('../services/emailService');
+const { sendWithdrawalApprovedEmail, sendWithdrawalOTPEmail } = require('../services/emailService');
 const User = require('../models/User');
 const { notifyStudentActivity } = require('../services/studentActivityService');
 
+const OTP_PREFIX = 'withdrawal:';
+const OTP_TTL_MS = 10 * 60 * 1000;
+
+exports.sendWithdrawalOTP = async (req, res, next) => {
+  try {
+    if (req.user.subscriptionStatus !== 'active') {
+      return sendError(res, 'Your account must be activated before you can withdraw. Activate your membership to unlock withdrawals.', 403);
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expires = new Date(Date.now() + OTP_TTL_MS);
+
+    await TempOTP.findOneAndUpdate(
+      { email: `${OTP_PREFIX}${req.user._id}` },
+      { email: `${OTP_PREFIX}${req.user._id}`, otp, expires },
+      { upsert: true, new: true }
+    );
+
+    const result = await sendWithdrawalOTPEmail(req.user.email, otp);
+    if (!result.success) {
+      return sendError(res, `Failed to send OTP email: ${result.error}`, 500);
+    }
+    sendSuccess(res, null, 'OTP sent to your email. It is valid for 10 minutes.');
+  } catch (error) { next(error); }
+};
+
+const verifyWithdrawalOTP = async (userId, otp) => {
+  if (!otp) return 'OTP is required. Please request an OTP first.';
+  const record = await TempOTP.findOne({ email: `${OTP_PREFIX}${userId}` });
+  if (!record) return 'No OTP found. Please request a new OTP first.';
+  if (record.expires < new Date()) {
+    await TempOTP.deleteOne({ _id: record._id });
+    return 'OTP expired. Please request a new OTP.';
+  }
+  if (String(record.otp) !== String(otp).trim()) return 'Invalid OTP. Please try again.';
+  await TempOTP.deleteOne({ _id: record._id });
+  return null;
+};
+
 exports.requestWithdrawal = async (req, res, next) => {
   try {
-    const { amount, paymentMethod, walletAddress, cryptocurrency } = req.body;
+    const { amount, paymentMethod, walletAddress, cryptocurrency, otp } = req.body;
     if (!amount || amount <= 0) return sendError(res, 'Valid amount is required', 400);
+
+    const otpError = await verifyWithdrawalOTP(req.user._id, otp);
+    if (otpError) return sendError(res, otpError, 400);
 
     const method = (paymentMethod || 'usdt_bep20').trim();
     if (method !== 'usdt_bep20') return sendError(res, 'Only USDT BEP20 withdrawals are supported', 400);

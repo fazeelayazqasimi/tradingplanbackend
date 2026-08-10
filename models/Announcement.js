@@ -18,10 +18,15 @@ const announcementSchema = new mongoose.Schema({
     trim: true,
     default: null
   },
+  video: {
+    type: String,
+    trim: true,
+    default: null
+  },
   type: {
     type: String,
     enum: {
-      values: ['general', 'course', 'signal', 'system'],
+      values: ['general', 'course', 'signal', 'promotion', 'maintenance', 'update', 'system'],
       message: '{VALUE} is not a valid announcement type'
     },
     required: [true, 'Announcement type is required']

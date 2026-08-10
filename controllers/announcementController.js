@@ -30,6 +30,26 @@ exports.uploadImage = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+exports.uploadPdf = async (req, res, next) => {
+  try {
+    if (!req.file) return sendError(res, 'No document uploaded', 400);
+    const url = req.file.path || `/uploads/media/${req.file.filename}`;
+    sendSuccess(res, {
+      url,
+      fileName: req.file.originalname,
+      fileSize: req.file.size || 0
+    }, 'Document uploaded', 201);
+  } catch (error) { next(error); }
+};
+
+exports.uploadVideo = async (req, res, next) => {
+  try {
+    if (!req.file) return sendError(res, 'No video uploaded', 400);
+    const url = req.file.path || `/uploads/videos/${req.file.filename}`;
+    sendSuccess(res, { url }, 'Video uploaded', 201);
+  } catch (error) { next(error); }
+};
+
 exports.createAnnouncement = async (req, res, next) => {
   try {
     const announcement = await Announcement.create({ ...req.body, authorId: req.user._id });
