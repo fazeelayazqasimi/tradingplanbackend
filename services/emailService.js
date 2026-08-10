@@ -342,6 +342,105 @@ const sendSignalPublishedEmail = async (users, signal) => {
   return results;
 };
 
+const sendSignalTPHitEmail = async (users, signal) => {
+  const name = await getBrandName();
+  const html = buildTemplate('Signal Target Hit', `
+    <h2 style="margin:0 0 16px 0;color:#1f2937;font-size:20px;">🎯 Target Achieved!</h2>
+    <p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.6;">
+      Congratulations! Our ${signal.symbol} signal has hit its take-profit target. Well done to everyone who followed the plan!
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;margin:16px 0;">
+      <tr>
+        <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Symbol</strong></td>
+        <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;">${signal.symbol}</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Action</strong></td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:${signal.action === 'BUY' ? '#16a34a' : '#dc2626'};">${signal.action} ${signal.side || ''}</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Entry Price</strong></td>
+        <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;">${signal.openPrice}</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Take Profit Hit</strong></td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#16a34a;">${signal.takeProfit}</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Profit</strong></td>
+        <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#16a34a;">+$${Number(signal.profit || 0).toFixed(2)} ${signal.pips ? `(${signal.pips} pips)` : ''}</td>
+      </tr>
+    </table>
+    <p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.6;">
+      Consistency and discipline win in trading. Keep following the signals and manage your risk well!
+    </p>
+    <div style="text-align:center;margin:24px 0;">
+      <a href="${process.env.FRONTEND_URL}/signals" style="background-color:#16a34a;color:#ffffff;padding:12px 28px;text-decoration:none;border-radius:6px;font-size:15px;font-weight:600;display:inline-block;">View Signals</a>
+    </div>
+  `, name);
+
+  const userArray = Array.isArray(users) ? users : [users];
+  const results = await Promise.allSettled(
+    userArray.map((user) => sendEmail({
+      to: user.email,
+      subject: `🎯 Target Hit: ${signal.symbol} ${signal.action} — ${name}`,
+      html
+    }))
+  );
+  return results;
+};
+
+const sendSignalSLHitEmail = async (users, signal) => {
+  const name = await getBrandName();
+  const html = buildTemplate('Stop Loss Hit', `
+    <h2 style="margin:0 0 16px 0;color:#1f2937;font-size:20px;">🛑 Stop Loss Triggered</h2>
+    <p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.6;">
+      The ${signal.symbol} ${signal.action} signal has hit its stop loss. Losing trades are part of trading — what matters is how you manage them.
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;margin:16px 0;">
+      <tr>
+        <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Symbol</strong></td>
+        <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;">${signal.symbol}</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Action</strong></td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:${signal.action === 'BUY' ? '#16a34a' : '#dc2626'};">${signal.action} ${signal.side || ''}</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Entry Price</strong></td>
+        <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;">${signal.openPrice}</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Stop Loss Hit</strong></td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#dc2626;">${signal.stopLoss}</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Loss</strong></td>
+        <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#dc2626;">-$${Number(Math.abs(signal.profit || 0)).toFixed(2)} ${signal.pips ? `(${signal.pips} pips)` : ''}</td>
+      </tr>
+    </table>
+    <p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.6;">
+      Remember: a small, controlled loss protects your capital. Every professional trader faces them — the key is to stay calm, stick to your plan, and wait for the next high-quality setup.
+    </p>
+    <p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.6;">
+      The next signal is on the way. Stay disciplined — we're in this together! 💪
+    </p>
+    <div style="text-align:center;margin:24px 0;">
+      <a href="${process.env.FRONTEND_URL}/signals" style="background-color:#3b82f6;color:#ffffff;padding:12px 28px;text-decoration:none;border-radius:6px;font-size:15px;font-weight:600;display:inline-block;">View Signals</a>
+    </div>
+  `, name);
+
+  const userArray = Array.isArray(users) ? users : [users];
+  const results = await Promise.allSettled(
+    userArray.map((user) => sendEmail({
+      to: user.email,
+      subject: `🛑 Stop Loss Hit: ${signal.symbol} ${signal.action} — Stay Strong! ${name}`,
+      html
+    }))
+  );
+  return results;
+};
+
 const sendAnnouncementEmail = async (users, announcement) => {
   const name = await getBrandName();
   const html = buildTemplate('New Announcement', `
@@ -657,6 +756,8 @@ module.exports = {
   sendWithdrawalApprovedEmail,
   sendRankPromotionEmail,
   sendSignalPublishedEmail,
+  sendSignalTPHitEmail,
+  sendSignalSLHitEmail,
   sendAnnouncementEmail,
   sendReferralSignupEmail,
   sendCourseEnrollmentPendingEmail,

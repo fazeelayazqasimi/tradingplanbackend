@@ -44,6 +44,30 @@ const signalSchema = new mongoose.Schema({
     default: null,
     min: [0, 'Current price cannot be negative']
   },
+  result: {
+    type: String,
+    enum: {
+      values: ['tp', 'sl', null],
+      message: '{VALUE} is not a valid signal result'
+    },
+    default: null
+  },
+  tpHitAt: {
+    type: Date,
+    default: null
+  },
+  slHitAt: {
+    type: Date,
+    default: null
+  },
+  lastCheckedPrice: {
+    type: Number,
+    default: null
+  },
+  lastCheckedAt: {
+    type: Date,
+    default: null
+  },
   stopLoss: {
     type: Number,
     default: null,
@@ -60,7 +84,7 @@ const signalSchema = new mongoose.Schema({
       values: ['open', 'closed', 'pending'],
       message: '{VALUE} is not a valid status'
     },
-    default: 'pending'
+    default: 'open'
   },
   profit: {
     type: Number,
