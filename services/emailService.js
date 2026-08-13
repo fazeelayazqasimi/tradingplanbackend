@@ -299,6 +299,37 @@ const sendRankPromotionEmail = async (user, newRank) => {
 
 const sendSignalPublishedEmail = async (users, signal) => {
   const name = await getBrandName();
+
+  const openPrices = Array.isArray(signal.openPrices) && signal.openPrices.length > 0
+    ? signal.openPrices
+    : (signal.openPrice != null ? [signal.openPrice] : []);
+  const openPriceRows = openPrices.length > 1
+    ? openPrices.map((p, i) => `
+        <tr>
+          <td style="padding:8px 12px;${i % 2 === 0 ? 'background-color:#f9fafb;' : ''}border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Open Price ${i + 1}</strong></td>
+          <td style="padding:8px 12px;${i % 2 === 0 ? 'background-color:#f9fafb;' : ''}border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;">${p}</td>
+        </tr>`).join('')
+    : (openPrices.length > 0 ? `
+        <tr>
+          <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Open Price</strong></td>
+          <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;">${openPrices[0]}</td>
+        </tr>` : '');
+
+  const takeProfits = Array.isArray(signal.takeProfits) && signal.takeProfits.length > 0
+    ? signal.takeProfits.map((t) => t.price)
+    : (signal.takeProfit != null ? [signal.takeProfit] : []);
+  const takeProfitRows = takeProfits.length > 1
+    ? takeProfits.map((p, i) => `
+        <tr>
+          <td style="padding:8px 12px;${i % 2 === 0 ? 'background-color:#f9fafb;' : ''}border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Take Profit ${i + 1}</strong></td>
+          <td style="padding:8px 12px;${i % 2 === 0 ? 'background-color:#f9fafb;' : ''}border-bottom:1px solid #e5e7eb;font-size:14px;color:#16a34a;">${p}</td>
+        </tr>`).join('')
+    : (takeProfits.length > 0 ? `
+        <tr>
+          <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Take Profit</strong></td>
+          <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#16a34a;">${takeProfits[0]}</td>
+        </tr>` : '');
+
   const signalDetails = `
     <tr>
       <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Symbol</strong></td>
@@ -308,12 +339,9 @@ const sendSignalPublishedEmail = async (users, signal) => {
       <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Action</strong></td>
       <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:${signal.action.startsWith('BUY') ? '#16a34a' : '#dc2626'};">${signal.action} ${signal.side || ''}</td>
     </tr>
-    <tr>
-      <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Open Price</strong></td>
-      <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;">${signal.openPrice}</td>
-    </tr>
+    ${openPriceRows}
     ${signal.stopLoss ? `<tr><td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Stop Loss</strong></td><td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#dc2626;">${signal.stopLoss}</td></tr>` : ''}
-    ${signal.takeProfit ? `<tr><td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Take Profit</strong></td><td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#16a34a;">${signal.takeProfit}</td></tr>` : ''}
+    ${takeProfitRows}
   `;
 
   const html = buildTemplate('New Trading Signal Published', `
@@ -350,9 +378,8 @@ const sendSignalTPHitEmail = async (users, signal, tpIndex = null) => {
     ? signal.takeProfits[tpIndex]?.price
     : signal.takeProfit;
   const headline = tpLabel ? `${tpLabel} Hit` : 'Target Achieved';
-  const headlineEmoji = tpLabel ? '🎯' : '🎯 Target Achieved!';
   const html = buildTemplate(`${headline} - Signal Target Hit`, `
-    <h2 style="margin:0 0 16px 0;color:#1f2937;font-size:20px;">${tpLabel ? `🎯 ${tpLabel} Achieved!` : '🎯 Target Achieved!'}</h2>
+    <h2 style="margin:0 0 16px 0;color:#1f2937;font-size:20px;">${tpLabel ? `${tpLabel} Achieved!` : 'Target Achieved!'}</h2>
     <p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.6;">
       Congratulations! ${tpLabel ? `Our ${signal.symbol} signal has hit ${tpLabel}` : `Our ${signal.symbol} signal has hit its take-profit target`}. Well done to everyone who followed the plan!
     </p>
@@ -390,7 +417,7 @@ const sendSignalTPHitEmail = async (users, signal, tpIndex = null) => {
   const results = await Promise.allSettled(
     userArray.map((user) => sendEmail({
       to: user.email,
-      subject: `${tpLabel ? `🎯 ${tpLabel} Hit` : '🎯 Target Hit'}: ${signal.symbol} ${signal.action} — ${name}`,
+      subject: `${tpLabel ? `${tpLabel} Hit` : 'Target Hit'}: ${signal.symbol} ${signal.action} — ${name}`,
       html
     }))
   );
@@ -400,7 +427,7 @@ const sendSignalTPHitEmail = async (users, signal, tpIndex = null) => {
 const sendSignalSLHitEmail = async (users, signal) => {
   const name = await getBrandName();
   const html = buildTemplate('Stop Loss Hit', `
-    <h2 style="margin:0 0 16px 0;color:#1f2937;font-size:20px;">🛑 Stop Loss Triggered</h2>
+    <h2 style="margin:0 0 16px 0;color:#1f2937;font-size:20px;">Stop Loss Triggered</h2>
     <p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.6;">
       The ${signal.symbol} ${signal.action} signal has hit its stop loss. Losing trades are part of trading — what matters is how you manage them.
     </p>
@@ -430,7 +457,7 @@ const sendSignalSLHitEmail = async (users, signal) => {
       Remember: a small, controlled loss protects your capital. Every professional trader faces them — the key is to stay calm, stick to your plan, and wait for the next high-quality setup.
     </p>
     <p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.6;">
-      The next signal is on the way. Stay disciplined — we're in this together! 💪
+      The next signal is on the way. Stay disciplined — we're in this together!
     </p>
     <div style="text-align:center;margin:24px 0;">
       <a href="${process.env.FRONTEND_URL}/signals" style="background-color:#3b82f6;color:#ffffff;padding:12px 28px;text-decoration:none;border-radius:6px;font-size:15px;font-weight:600;display:inline-block;">View Signals</a>
@@ -441,7 +468,7 @@ const sendSignalSLHitEmail = async (users, signal) => {
   const results = await Promise.allSettled(
     userArray.map((user) => sendEmail({
       to: user.email,
-      subject: `🛑 Stop Loss Hit: ${signal.symbol} ${signal.action} — Stay Strong! ${name}`,
+      subject: `Stop Loss Hit: ${signal.symbol} ${signal.action} — Stay Strong! ${name}`,
       html
     }))
   );
