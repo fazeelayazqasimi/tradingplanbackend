@@ -16,7 +16,7 @@ const signalSchema = new mongoose.Schema({
   action: {
     type: String,
     enum: {
-      values: ['BUY', 'SELL', 'CLOSE', 'MODIFY'],
+      values: ['BUY', 'SELL', 'BUY LIMIT', 'SELL LIMIT', 'BUY STOP', 'SELL STOP', 'CLOSE', 'MODIFY'],
       message: '{VALUE} is not a valid action'
     },
     required: [true, 'Signal action is required']
@@ -38,6 +38,14 @@ const signalSchema = new mongoose.Schema({
     type: Number,
     required: [true, 'Open price is required'],
     min: [0, 'Open price cannot be negative']
+  },
+  openPrices: {
+    type: [Number],
+    default: [],
+    validate: {
+      validator: (v) => v.every((p) => p >= 0),
+      message: 'Open prices cannot be negative'
+    }
   },
   currentPrice: {
     type: Number,
@@ -77,6 +85,24 @@ const signalSchema = new mongoose.Schema({
     type: Number,
     default: null,
     min: [0, 'Take profit cannot be negative']
+  },
+  takeProfits: {
+    type: [{
+      price: {
+        type: Number,
+        required: true,
+        min: [0, 'Take profit cannot be negative']
+      },
+      hit: {
+        type: Boolean,
+        default: false
+      },
+      hitAt: {
+        type: Date,
+        default: null
+      }
+    }],
+    default: []
   },
   status: {
     type: String,

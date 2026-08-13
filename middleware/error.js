@@ -44,6 +44,24 @@ const errorHandler = (err, req, res, _next) => {
     message = "Token expired";
   }
 
+  // Multer / file upload errors
+  if (err.name === "MulterError") {
+    statusCode = 400;
+    if (err.code === "LIMIT_FILE_SIZE") {
+      message = "File too large. Please upload a smaller file.";
+    } else if (err.code === "LIMIT_UNEXPECTED_FILE") {
+      message = "Too many files uploaded. Please upload fewer files.";
+    } else {
+      message = `Upload failed: ${err.message || err.code}`;
+    }
+  }
+
+  // Cloudinary / storage errors (e.g. invalid file format rejected by storage)
+  if (err.message && /cloudinary|invalid file type|not supported|not allowed/i.test(err.message)) {
+    statusCode = 400;
+    message = err.message || "File type not supported";
+  }
+
   const response = {
     success: false,
     message,

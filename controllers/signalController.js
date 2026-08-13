@@ -7,6 +7,20 @@ const { sendSignalPublishedEmail } = require('../services/emailService');
 const { resolveSignal, checkOpenSignals } = require('../services/signalResultService');
 const { getLiveQuote } = require('../services/liveRatesService');
 
+const normalizeMultiLevels = (body) => {
+  if (Array.isArray(body.openPrices) && body.openPrices.length > 0) {
+    body.openPrice = parseFloat(body.openPrices[0]);
+  }
+  if (Array.isArray(body.takeProfits) && body.takeProfits.length > 0) {
+    body.takeProfits = body.takeProfits.map((tp) => {
+      const price = typeof tp === 'object' ? tp.price : tp;
+      return { price: parseFloat(price), hit: tp && tp.hit ? true : false, hitAt: tp && tp.hitAt ? tp.hitAt : null };
+    });
+    body.takeProfit = body.takeProfits[0].price;
+  }
+  return body;
+};
+
 exports.getSignals = async (req, res, next) => {
   try {
     const { page, limit, sort } = getPaginationOptions(req.query);
@@ -40,7 +54,7 @@ exports.getSignal = async (req, res, next) => {
 
 exports.createSignal = async (req, res, next) => {
   try {
-    const signal = await Signal.create({ ...req.body, userId: req.user._id });
+    const signal = await Signal.create({ ...normalizeMultiLevels({ ...req.body }), userId: req.user._id });
     if (signal.isPublished) {
       try {
         const students = await User.find({ role: 'student', isActive: true }).select('email firstName _id');
@@ -69,7 +83,7 @@ exports.updateSignal = async (req, res, next) => {
     const existing = await Signal.findById(req.params.id);
     if (!existing) return sendError(res, 'Signal not found', 404);
     const wasPublished = existing.isPublished;
-    Object.assign(existing, req.body);
+    Object.assign(existing, normalizeMultiLevels({ ...req.body }));
     await existing.save();
     if (req.body.isPublished === true && !wasPublished) {
       try {
@@ -107,9 +121,13 @@ exports.deleteSignal = async (req, res, next) => {
 exports.hitTakeProfit = async (req, res, next) => {
   try {
     const price = req.body.price != null ? Number(req.body.price) : await getLiveQuote(req.body.symbol || '');
-    const result = await resolveSignal(req.params.id, 'tp', price);
+    const tpIndex = req.body.tpIndex != null ? Number(req.body.tpIndex) : null;
+    const result = await resolveSignal(req.params.id, 'tp', price, { tpIndex });
     if (!result.resolved) return sendError(res, result.reason || 'Unable to resolve signal', 400);
-    sendSuccess(res, result.signal, 'Target achieved! TP hit email sent to all students');
+    const msg = result.tpLabel
+      ? `${result.tpLabel} hit! Email sent to all students`
+      : 'Target achieved! TP hit email sent to all students';
+    sendSuccess(res, result.signal, msg);
   } catch (error) {
     next(error);
   }

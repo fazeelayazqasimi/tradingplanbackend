@@ -4,6 +4,12 @@ const { sendSuccess, sendError, sendPaginated } = require('../helpers/response')
 const { getPaginationOptions } = require('../helpers/pagination');
 const { sendAnnouncementEmail } = require('../services/emailService');
 
+const toPublicUrl = (file, folder) => {
+  const p = file && file.path;
+  if (p && /^https?:\/\//.test(p)) return p;
+  return `/uploads/${folder}/${file.filename}`;
+};
+
 exports.getAnnouncements = async (req, res, next) => {
   try {
     const { page, limit, sort } = getPaginationOptions(req.query);
@@ -25,7 +31,7 @@ exports.getAnnouncement = async (req, res, next) => {
 exports.uploadImage = async (req, res, next) => {
   try {
     if (!req.file) return sendError(res, 'No image uploaded', 400);
-    const url = req.file.path || `/uploads/media/${req.file.filename}`;
+    const url = toPublicUrl(req.file, 'media');
     sendSuccess(res, { url }, 'Image uploaded', 201);
   } catch (error) { next(error); }
 };
@@ -33,7 +39,7 @@ exports.uploadImage = async (req, res, next) => {
 exports.uploadPdf = async (req, res, next) => {
   try {
     if (!req.file) return sendError(res, 'No document uploaded', 400);
-    const url = req.file.path || `/uploads/media/${req.file.filename}`;
+    const url = toPublicUrl(req.file, 'media');
     sendSuccess(res, {
       url,
       fileName: req.file.originalname,
@@ -45,7 +51,7 @@ exports.uploadPdf = async (req, res, next) => {
 exports.uploadVideo = async (req, res, next) => {
   try {
     if (!req.file) return sendError(res, 'No video uploaded', 400);
-    const url = req.file.path || `/uploads/videos/${req.file.filename}`;
+    const url = toPublicUrl(req.file, 'videos');
     sendSuccess(res, { url }, 'Video uploaded', 201);
   } catch (error) { next(error); }
 };

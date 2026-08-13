@@ -1,4 +1,6 @@
 let mediaStorage = null;
+let documentStorage = null;
+let videoStorage = null;
 let cloudinary = null;
 
 const cloudName = process.env.CLOUDINARY_CLOUD_NAME || '';
@@ -19,6 +21,25 @@ if (cloudName && apiKey && apiSecret) {
       transformation: [{ quality: 'auto', fetch_format: 'auto' }],
     },
   });
+
+  documentStorage = new CloudinaryStorage({
+    cloudinary,
+    params: {
+      folder: 'documents',
+      resource_type: 'auto',
+      allowed_formats: ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'txt', 'jpg', 'jpeg', 'png'],
+    },
+  });
+
+  videoStorage = new CloudinaryStorage({
+    cloudinary,
+    params: {
+      folder: 'videos',
+      resource_type: 'video',
+      allowed_formats: ['mp4', 'webm', 'mov', 'avi', 'mkv', 'flv', 'wmv'],
+      chunk_size: 6000000,
+    },
+  });
 }
 
-module.exports = { cloudinary, mediaStorage };
+module.exports = { cloudinary, mediaStorage, documentStorage, videoStorage };

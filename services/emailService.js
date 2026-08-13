@@ -306,7 +306,7 @@ const sendSignalPublishedEmail = async (users, signal) => {
     </tr>
     <tr>
       <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Action</strong></td>
-      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:${signal.action === 'BUY' ? '#16a34a' : '#dc2626'};">${signal.action} ${signal.side || ''}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:${signal.action.startsWith('BUY') ? '#16a34a' : '#dc2626'};">${signal.action} ${signal.side || ''}</td>
     </tr>
     <tr>
       <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Open Price</strong></td>
@@ -342,12 +342,19 @@ const sendSignalPublishedEmail = async (users, signal) => {
   return results;
 };
 
-const sendSignalTPHitEmail = async (users, signal) => {
+const sendSignalTPHitEmail = async (users, signal, tpIndex = null) => {
   const name = await getBrandName();
-  const html = buildTemplate('Signal Target Hit', `
-    <h2 style="margin:0 0 16px 0;color:#1f2937;font-size:20px;">🎯 Target Achieved!</h2>
+  const hasMultiTp = Array.isArray(signal.takeProfits) && signal.takeProfits.length > 0;
+  const tpLabel = tpIndex != null && hasMultiTp ? `TP ${tpIndex + 1}` : null;
+  const hitPrice = tpIndex != null && hasMultiTp
+    ? signal.takeProfits[tpIndex]?.price
+    : signal.takeProfit;
+  const headline = tpLabel ? `${tpLabel} Hit` : 'Target Achieved';
+  const headlineEmoji = tpLabel ? '🎯' : '🎯 Target Achieved!';
+  const html = buildTemplate(`${headline} - Signal Target Hit`, `
+    <h2 style="margin:0 0 16px 0;color:#1f2937;font-size:20px;">${tpLabel ? `🎯 ${tpLabel} Achieved!` : '🎯 Target Achieved!'}</h2>
     <p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.6;">
-      Congratulations! Our ${signal.symbol} signal has hit its take-profit target. Well done to everyone who followed the plan!
+      Congratulations! ${tpLabel ? `Our ${signal.symbol} signal has hit ${tpLabel}` : `Our ${signal.symbol} signal has hit its take-profit target`}. Well done to everyone who followed the plan!
     </p>
     <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;margin:16px 0;">
       <tr>
@@ -356,15 +363,15 @@ const sendSignalTPHitEmail = async (users, signal) => {
       </tr>
       <tr>
         <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Action</strong></td>
-        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:${signal.action === 'BUY' ? '#16a34a' : '#dc2626'};">${signal.action} ${signal.side || ''}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:${signal.action.startsWith('BUY') ? '#16a34a' : '#dc2626'};">${signal.action} ${signal.side || ''}</td>
       </tr>
       <tr>
         <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Entry Price</strong></td>
         <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;">${signal.openPrice}</td>
       </tr>
       <tr>
-        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Take Profit Hit</strong></td>
-        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#16a34a;">${signal.takeProfit}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>${tpLabel ? `${tpLabel} Hit` : 'Take Profit Hit'}</strong></td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#16a34a;">${hitPrice}</td>
       </tr>
       <tr>
         <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Profit</strong></td>
@@ -383,7 +390,7 @@ const sendSignalTPHitEmail = async (users, signal) => {
   const results = await Promise.allSettled(
     userArray.map((user) => sendEmail({
       to: user.email,
-      subject: `🎯 Target Hit: ${signal.symbol} ${signal.action} — ${name}`,
+      subject: `${tpLabel ? `🎯 ${tpLabel} Hit` : '🎯 Target Hit'}: ${signal.symbol} ${signal.action} — ${name}`,
       html
     }))
   );
@@ -404,7 +411,7 @@ const sendSignalSLHitEmail = async (users, signal) => {
       </tr>
       <tr>
         <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Action</strong></td>
-        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:${signal.action === 'BUY' ? '#16a34a' : '#dc2626'};">${signal.action} ${signal.side || ''}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:${signal.action.startsWith('BUY') ? '#16a34a' : '#dc2626'};">${signal.action} ${signal.side || ''}</td>
       </tr>
       <tr>
         <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Entry Price</strong></td>

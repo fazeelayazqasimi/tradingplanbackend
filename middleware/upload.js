@@ -1,7 +1,7 @@
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
-const { mediaStorage } = require("../config/cloudinary");
+const { mediaStorage, documentStorage, videoStorage } = require("../config/cloudinary");
 
 const useCloudinary = !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
 
@@ -151,7 +151,7 @@ const uploadDepositScreenshot = multer({
 });
 
 const uploadVideo = multer({
-  storage: multer.diskStorage({
+  storage: useCloudinary ? videoStorage : multer.diskStorage({
     destination: (req, file, cb) => {
       cb(null, path.join(UPLOAD_BASE, 'videos'));
     },
@@ -160,7 +160,7 @@ const uploadVideo = multer({
       cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
     },
   }),
-  limits: { fileSize: 500 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowed = /mp4|webm|mov|avi|mkv|flv|wmv/;
     const extname = allowed.test(path.extname(file.originalname).toLowerCase());
@@ -171,7 +171,7 @@ const uploadVideo = multer({
 });
 
 const uploadDocument = multer({
-  storage: useCloudinary ? mediaStorage : multer.diskStorage({
+  storage: useCloudinary ? documentStorage : multer.diskStorage({
     destination: (req, file, cb) => cb(null, path.join(UPLOAD_BASE, 'media')),
     filename: (req, file, cb) => {
       const ext = path.extname(file.originalname);

@@ -1,13 +1,15 @@
 const { body } = require('express-validator');
 
+const VALID_ACTIONS = ['BUY', 'SELL', 'BUY LIMIT', 'SELL LIMIT', 'BUY STOP', 'SELL STOP', 'CLOSE', 'MODIFY'];
+
 const createSignalValidator = [
   body('symbol')
     .trim()
     .notEmpty()
     .withMessage('Symbol is required'),
   body('action')
-    .isIn(['BUY', 'SELL', 'CLOSE', 'MODIFY'])
-    .withMessage('Action must be BUY, SELL, CLOSE, or MODIFY'),
+    .isIn(VALID_ACTIONS)
+    .withMessage(`Action must be one of: ${VALID_ACTIONS.join(', ')}`),
   body('side')
     .isIn(['LONG', 'SHORT'])
     .withMessage('Side must be LONG or SHORT'),
@@ -23,6 +25,12 @@ const createSignalValidator = [
   body('openPrice')
     .isNumeric()
     .withMessage('Open price must be a number'),
+  body('openPrices')
+    .optional()
+    .isArray({ max: 10 })
+    .withMessage('Open prices must be an array of numbers')
+    .custom((value) => value.every((p) => !isNaN(parseFloat(p))))
+    .withMessage('Open prices must contain only numbers'),
   body('stopLoss')
     .optional()
     .isNumeric()
@@ -31,6 +39,12 @@ const createSignalValidator = [
     .optional()
     .isNumeric()
     .withMessage('Take profit must be a number'),
+  body('takeProfits')
+    .optional()
+    .isArray({ max: 10 })
+    .withMessage('Take profits must be an array')
+    .custom((value) => value.every((tp) => !isNaN(parseFloat(tp && tp.price !== undefined ? tp.price : tp))))
+    .withMessage('Take profits must contain valid price levels'),
   body('description')
     .optional()
     .isString()
@@ -47,8 +61,8 @@ const updateSignalValidator = [
     .withMessage('Symbol cannot be empty'),
   body('action')
     .optional()
-    .isIn(['BUY', 'SELL', 'CLOSE', 'MODIFY'])
-    .withMessage('Action must be BUY, SELL, CLOSE, or MODIFY'),
+    .isIn(VALID_ACTIONS)
+    .withMessage(`Action must be one of: ${VALID_ACTIONS.join(', ')}`),
   body('side')
     .optional()
     .isIn(['LONG', 'SHORT'])
@@ -67,6 +81,12 @@ const updateSignalValidator = [
     .optional()
     .isNumeric()
     .withMessage('Open price must be a number'),
+  body('openPrices')
+    .optional()
+    .isArray({ max: 10 })
+    .withMessage('Open prices must be an array of numbers')
+    .custom((value) => value.every((p) => !isNaN(parseFloat(p))))
+    .withMessage('Open prices must contain only numbers'),
   body('stopLoss')
     .optional()
     .isNumeric()
@@ -75,6 +95,12 @@ const updateSignalValidator = [
     .optional()
     .isNumeric()
     .withMessage('Take profit must be a number'),
+  body('takeProfits')
+    .optional()
+    .isArray({ max: 10 })
+    .withMessage('Take profits must be an array')
+    .custom((value) => value.every((tp) => !isNaN(parseFloat(tp && tp.price !== undefined ? tp.price : tp))))
+    .withMessage('Take profits must contain valid price levels'),
   body('description')
     .optional()
     .isString()

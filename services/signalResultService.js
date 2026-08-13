@@ -4,20 +4,29 @@ const Notification = require('../models/Notification');
 const { getLiveQuotes, normalizeSymbol, getPipSize } = require('./liveRatesService');
 const { sendSignalTPHitEmail, sendSignalSLHitEmail } = require('./emailService');
 
-const notifyStudents = async (signal, outcome) => {
+const getTpLabel = (signal, tpIndex) => {
+  if (!signal.takeProfits || signal.takeProfits.length === 0) return null;
+  return `TP ${tpIndex + 1}`;
+};
+
+const notifyStudents = async (signal, outcome, tpIndex = null) => {
   try {
     const students = await User.find({ role: 'student', isActive: true }).select('email firstName _id');
     if (students.length === 0) return;
 
     const isTP = outcome === 'tp';
+    const tpLabel = isTP ? getTpLabel(signal, tpIndex) : null;
+    const hitPrice = isTP
+      ? (signal.takeProfits && signal.takeProfits[tpIndex]?.price) || signal.takeProfit
+      : signal.stopLoss;
     const title = isTP
-      ? `🎯 Target Hit: ${signal.symbol} ${signal.action}`
+      ? `${tpLabel ? `🎯 ${tpLabel} Hit` : '🎯 Target Hit'}: ${signal.symbol} ${signal.action}`
       : `🛑 Stop Loss Hit: ${signal.symbol} ${signal.action}`;
     const message = isTP
-      ? `Congratulations! Target achieved on ${signal.symbol} at ${signal.takeProfit}. Great trading!`
+      ? `Congratulations! ${tpLabel ? `${tpLabel} achieved` : 'Target achieved'} on ${signal.symbol} at ${hitPrice}. Great trading!`
       : `Stop loss triggered on ${signal.symbol} at ${signal.stopLoss}. Don't worry — losses are part of trading. Stay disciplined!`;
 
-    if (isTP) sendSignalTPHitEmail(students, signal);
+    if (isTP) sendSignalTPHitEmail(students, signal, tpIndex);
     else sendSignalSLHitEmail(students, signal);
 
     const notifications = students.map((s) => ({
@@ -34,13 +43,19 @@ const notifyStudents = async (signal, outcome) => {
   }
 };
 
-const computeResult = (signal, outcome) => {
-  const isLong = (signal.action === 'BUY' && signal.side !== 'SHORT') || signal.side === 'LONG';
+const computeTpResult = (signal, tpPrice) => {
+  const isLong = (signal.action.startsWith('BUY') && signal.side !== 'SHORT') || signal.side === 'LONG';
+  return isLong
+    ? (tpPrice - signal.openPrice)
+    : (signal.openPrice - tpPrice);
+};
+
+const computeResult = (signal, outcome, tpIndex = null) => {
   if (outcome === 'tp') {
-    return isLong
-      ? (signal.takeProfit - signal.openPrice)
-      : (signal.openPrice - signal.takeProfit);
+    const tpPrice = (signal.takeProfits && signal.takeProfits[tpIndex]?.price) || signal.takeProfit;
+    return computeTpResult(signal, tpPrice);
   }
+  const isLong = (signal.action.startsWith('BUY') && signal.side !== 'SHORT') || signal.side === 'LONG';
   return isLong
     ? (signal.stopLoss - signal.openPrice)
     : (signal.openPrice - signal.stopLoss);
@@ -49,8 +64,11 @@ const computeResult = (signal, outcome) => {
 /**
  * Resolve a signal as TP or SL hit. Idempotent — a signal already resolved
  * (status closed / result set) is left untouched.
+ * With multiple take profits, each TP is marked hit individually and the
+ * signal only closes once every TP is hit (or SL is hit).
  */
-const resolveSignal = async (signalId, outcome, price, { sendEmail = true } = {}) => {
+const resolveSignal = async (signalId, outcome, price, options = {}) => {
+  const { sendEmail = true, tpIndex = null } = options;
   const signal = await Signal.findById(signalId);
   if (!signal) return { resolved: false, reason: 'Signal not found' };
   if (signal.status === 'closed' || signal.result) {
@@ -59,6 +77,42 @@ const resolveSignal = async (signalId, outcome, price, { sendEmail = true } = {}
   if (outcome !== 'tp' && outcome !== 'sl') return { resolved: false, reason: 'Invalid outcome' };
 
   const isTP = outcome === 'tp';
+  const hasMultiTp = Array.isArray(signal.takeProfits) && signal.takeProfits.length > 0;
+
+  if (isTP && hasMultiTp) {
+    if (tpIndex == null) return { resolved: false, reason: 'TP index is required for multi-TP signals' };
+    const tp = signal.takeProfits[tpIndex];
+    if (!tp) return { resolved: false, reason: `Invalid TP index: ${tpIndex}` };
+    if (tp.hit) return { resolved: false, reason: `TP ${tpIndex + 1} already marked hit`, signal };
+
+    tp.hit = true;
+    tp.hitAt = new Date();
+
+    const profit = computeTpResult(signal, tp.price);
+    const pipSize = getPipSize(signal.symbol);
+    signal.profit = Number(profit.toFixed(2));
+    signal.pips = Number((profit / pipSize).toFixed(1));
+    signal.currentPrice = price != null ? Number(price) : tp.price;
+    signal.lastCheckedPrice = price != null ? Number(price) : tp.price;
+    signal.lastCheckedAt = new Date();
+    signal.tpHitAt = new Date();
+
+    const allHit = signal.takeProfits.every((t) => t.hit);
+    if (allHit) {
+      signal.status = 'closed';
+      signal.result = 'tp';
+      signal.closeTime = new Date();
+    }
+
+    await signal.save();
+
+    if (sendEmail) {
+      notifyStudents(signal, 'tp', tpIndex);
+    }
+
+    return { resolved: true, outcome: 'tp', tpIndex, tpLabel: `TP ${tpIndex + 1}`, signal };
+  }
+
   const level = isTP ? signal.takeProfit : signal.stopLoss;
   if (!level) return { resolved: false, reason: `Signal has no ${isTP ? 'take profit' : 'stop loss'} level` };
 
@@ -78,7 +132,7 @@ const resolveSignal = async (signalId, outcome, price, { sendEmail = true } = {}
   await signal.save();
 
   if (sendEmail) {
-    notifyStudents(signal, outcome);
+    notifyStudents(signal, outcome, tpIndex);
   }
 
   return { resolved: true, outcome, signal };
@@ -93,9 +147,12 @@ const checkOpenSignals = async () => {
     const signals = await Signal.find({
       isPublished: true,
       status: { $in: ['open', 'pending'] },
-      takeProfit: { $ne: null },
-      stopLoss: { $ne: null },
-    }).select('symbol action side openPrice stopLoss takeProfit');
+      $or: [
+        { takeProfit: { $ne: null } },
+        { 'takeProfits.0': { $exists: true } },
+        { stopLoss: { $ne: null } },
+      ],
+    }).select('symbol action side openPrice stopLoss takeProfit takeProfits');
     if (signals.length === 0) return [];
 
     const symbols = [...new Set(signals.map((s) => s.symbol))];
@@ -113,18 +170,34 @@ const checkOpenSignals = async () => {
         { $set: { lastCheckedPrice: price, lastCheckedAt: new Date(), currentPrice: price } }
       );
 
-      const isLong = (signal.action === 'BUY' && signal.side !== 'SHORT') || signal.side === 'LONG';
+      const isLong = (signal.action.startsWith('BUY') && signal.side !== 'SHORT') || signal.side === 'LONG';
       let outcome = null;
-      if (signal.takeProfit != null && (isLong ? price >= signal.takeProfit : price <= signal.takeProfit)) {
+      let tpIndex = null;
+
+      const hasMultiTp = Array.isArray(signal.takeProfits) && signal.takeProfits.length > 0;
+      if (hasMultiTp) {
+        for (let i = 0; i < signal.takeProfits.length; i++) {
+          const tp = signal.takeProfits[i];
+          if (tp.hit) continue;
+          if (isLong ? price >= tp.price : price <= tp.price) {
+            outcome = 'tp';
+            tpIndex = i;
+            break;
+          }
+        }
+      } else if (signal.takeProfit != null && (isLong ? price >= signal.takeProfit : price <= signal.takeProfit)) {
         outcome = 'tp';
-      } else if (signal.stopLoss != null && (isLong ? price <= signal.stopLoss : price >= signal.stopLoss)) {
+      }
+
+      if (!outcome && signal.stopLoss != null && (isLong ? price <= signal.stopLoss : price >= signal.stopLoss)) {
         outcome = 'sl';
       }
+
       if (outcome) {
-        const result = await resolveSignal(signal._id, outcome, price);
+        const result = await resolveSignal(signal._id, outcome, price, { tpIndex });
         if (result.resolved) {
-          resolved.push({ signalId: signal._id, symbol: signal.symbol, outcome, price });
-          console.log(`[SIGNAL RESULT] ${signal.symbol} ${signal.action} -> ${outcome.toUpperCase()} hit at ${price}`);
+          resolved.push({ signalId: signal._id, symbol: signal.symbol, outcome, price, tpIndex });
+          console.log(`[SIGNAL RESULT] ${signal.symbol} ${signal.action} -> ${outcome.toUpperCase()}${tpIndex != null ? ` (TP ${tpIndex + 1})` : ''} hit at ${price}`);
         }
       }
     }
