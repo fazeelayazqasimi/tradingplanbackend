@@ -118,6 +118,19 @@ exports.disconnectMT = async (req, res, next) => {
   }
 };
 
+exports.markWhatsappClick = async (req, res, next) => {
+  try {
+    const user = await User.findOneAndUpdate(
+      { _id: req.user._id, whatsappClicked: { $ne: true } },
+      { whatsappClicked: true, whatsappClickedAt: new Date() },
+      { new: true }
+    ).select('-password');
+    sendSuccess(res, { alreadyClicked: !user, clicked: !!user }, user ? 'WhatsApp channel visited' : 'Already recorded');
+  } catch (error) {
+    next(error);
+  }
+};
+
 exports.getDashboardStats = async (req, res, next) => {
   try {
     const totalStudents = await User.countDocuments({ role: 'student' });

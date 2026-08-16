@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { getUsers, getUser, adminUpdateUser, connectMT, disconnectMT, deleteUser } = require('../controllers/userController');
+const { getUsers, getUser, adminUpdateUser, connectMT, disconnectMT, markWhatsappClick, deleteUser } = require('../controllers/userController');
 const { protect, authorize } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 const { updateProfileValidator, connectMTValidator, adminUpdateUserValidator } = require('../validators/userValidators');
@@ -11,5 +11,6 @@ router.put('/:id', authorize('admin'), validate(adminUpdateUserValidator), admin
 router.delete('/:id', authorize('admin'), deleteUser);
 router.post('/connect-mt', validate(connectMTValidator), connectMT);
 router.delete('/disconnect-mt', disconnectMT);
+router.post('/whatsapp-click', markWhatsappClick);
 
 module.exports = router;

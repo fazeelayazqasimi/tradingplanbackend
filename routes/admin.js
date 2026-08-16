@@ -1,4 +1,4 @@
-const { getDashboard, getRevenueReport, getActivityLogs, getReferrals, getReferralStats, getReferralTree, getReferralById } = require('../controllers/adminController');
+const { getDashboard, getRevenueReport, getActivityLogs, getReferrals, getReferralStats, getReferralTree, getReferralById, getWhatsappStats } = require('../controllers/adminController');
 const { protect, authorize } = require('../middleware/auth');
 const { sendSuccess, sendError } = require('../helpers/response');
 const { bulkDeleteValidator, idValidator } = require('../validators/generalValidators');
@@ -39,6 +39,7 @@ router.get('/referrals', getReferrals);
 router.get('/referrals/stats', getReferralStats);
 router.get('/referrals/tree', getReferralTree);
 router.get('/referrals/:id', getReferralById);
+router.get('/whatsapp-stats', getWhatsappStats);
 
 router.post('/bulk-delete', async (req, res, next) => {
   try {

@@ -93,6 +93,14 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
+  whatsappClicked: {
+    type: Boolean,
+    default: false
+  },
+  whatsappClickedAt: {
+    type: Date,
+    default: null
+  },
   subscriptionStatus: {
     type: String,
     enum: {

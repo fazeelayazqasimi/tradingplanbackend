@@ -244,6 +244,28 @@ exports.getReferralStats = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+exports.getWhatsappStats = async (req, res, next) => {
+  try {
+    const { page, limit } = getPaginationOptions(req.query);
+    const totalClicked = await User.countDocuments({ whatsappClicked: true });
+    const totalStudents = await User.countDocuments({ role: 'student' });
+    const users = await User.find({ whatsappClicked: true })
+      .select('firstName lastName email avatar isApproved subscriptionStatus whatsappClickedAt')
+      .sort({ whatsappClickedAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean();
+    const totalPages = Math.ceil(totalClicked / limit);
+    sendSuccess(res, {
+      totalClicked,
+      totalStudents,
+      percentage: totalStudents ? Math.round((totalClicked / totalStudents) * 100) : 0,
+      users,
+      pagination: { total: totalClicked, page, limit, totalPages, hasNext: page < totalPages, hasPrev: page > 1 },
+    });
+  } catch (error) { next(error); }
+};
+
 const buildTree = async (userId, currentLevel = 1, maxDepth = 10) => {
   if (currentLevel > maxDepth || !userId) return [];
   const referrals = await Referral.find({ referrerId: userId, level: 1 })
