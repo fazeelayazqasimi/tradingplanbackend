@@ -17,12 +17,18 @@ const connectDB = require('./config/db');
 const seedAdmin = require('./database/seedAdmin');
 
 let isConnected = false;
+let connectPromise = null;
 
 async function connectToDatabase() {
   if (isConnected) return;
-  await connectDB();
-  await seedAdmin();
-  isConnected = true;
+  if (!connectPromise) {
+    connectPromise = (async () => {
+      await connectDB();
+      await seedAdmin();
+      isConnected = true;
+    })();
+  }
+  return connectPromise;
 }
 
 const app = express();

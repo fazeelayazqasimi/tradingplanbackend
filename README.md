@@ -8,7 +8,7 @@ A robust RESTful API backend for managing a trading education institute, built w
 - **Framework**: Express.js
 - **Database**: MongoDB with Mongoose ODM
 - **Auth**: JWT (access + refresh tokens)
-- **Email**: Nodemailer (Gmail SMTP)
+- **Email**: Resend (API)
 - **Security**: Helmet, CORS, Rate Limiting
 - **File Upload**: Multer
 
@@ -111,10 +111,8 @@ JWT_SECRET=your_jwt_secret
 JWT_EXPIRE=15d
 JWT_REFRESH_SECRET=your_jwt_refresh_secret
 JWT_REFRESH_EXPIRES_IN=30d
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_USER=your_email@gmail.com
-EMAIL_PASS=your_app_password
+RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxxxxx
+RESEND_FROM_EMAIL=no-reply@yourdomain.com
 FRONTEND_URL=http://localhost:5173
 BACKEND_URL=http://localhost:5000
 NODE_ENV=development
@@ -128,10 +126,8 @@ NODE_ENV=development
 | `JWT_EXPIRE` | Access token expiration (e.g., `15d`) |
 | `JWT_REFRESH_SECRET` | Secret for signing refresh tokens |
 | `JWT_REFRESH_EXPIRES_IN` | Refresh token expiration (e.g., `30d`) |
-| `EMAIL_HOST` | SMTP host for Nodemailer |
-| `EMAIL_PORT` | SMTP port |
-| `EMAIL_USER` | Sender email address |
-| `EMAIL_PASS` | Email app password |
+| `RESEND_API_KEY` | Resend API key for sending email |
+| `RESEND_FROM_EMAIL` | Verified sender address used as the "from" address |
 | `FRONTEND_URL` | Frontend origin for CORS |
 | `BACKEND_URL` | Backend base URL |
 | `NODE_ENV` | `development` or `production` |

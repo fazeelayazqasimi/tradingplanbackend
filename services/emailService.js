@@ -1,4 +1,4 @@
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const Setting = require('../models/Setting');
 
 const getBrandName = async () => {
@@ -10,21 +10,8 @@ const getBrandName = async () => {
   }
 };
 
-const createTransporter = () => {
-  const port = parseInt(process.env.EMAIL_PORT, 10) || 587;
-  return nodemailer.createTransport({
-    host: process.env.EMAIL_HOST,
-    port,
-    secure: port === 465,
-    requireTLS: true,
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
-    },
-    tls: {
-      rejectUnauthorized: false
-    }
-  });
+const createResendClient = () => {
+  return new Resend(process.env.RESEND_API_KEY);
 };
 
 const logEmail = (level, msg, data) => {
@@ -73,10 +60,9 @@ const buildTemplate = (title, bodyContent, instituteName = 'The 4x Hub') => {
 };
 
 const sendEmail = async ({ to, subject, html, fromName }) => {
-  const configStr = `host=${process.env.EMAIL_HOST}:${process.env.EMAIL_PORT || 587} user=${process.env.EMAIL_USER}`;
   try {
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-      const msg = 'EMAIL_USER / EMAIL_PASS are not configured in the environment';
+    if (!process.env.RESEND_API_KEY) {
+      const msg = 'RESEND_API_KEY is not configured in the environment';
       logEmail('error', `${msg} — cannot send to ${to}: "${subject}"`);
       return { success: false, error: msg };
     }
@@ -84,18 +70,20 @@ const sendEmail = async ({ to, subject, html, fromName }) => {
     if (!name) {
       try { name = await Setting.getByKey('institute_name', 'The 4x Hub'); } catch { name = 'The 4x Hub'; }
     }
-    const transporter = createTransporter();
-    logEmail('info', `Sending to ${to}: "${subject}" via ${configStr}`);
-    const info = await transporter.sendMail({
-      from: `"${name}" <${process.env.EMAIL_USER}>`,
+    const resend = createResendClient();
+    const from = `"${name}" <${process.env.RESEND_FROM_EMAIL || 'no-reply@the4xhub.com'}>`;
+    logEmail('info', `Sending to ${to}: "${subject}" via Resend (from ${from})`);
+    const { data, error } = await resend.emails.send({
+      from,
       to,
       subject,
       html
     });
-    logEmail('info', `Sent OK to ${to}: messageId=${info.messageId}`);
-    return { success: true, messageId: info.messageId };
+    if (error) throw error;
+    logEmail('info', `Sent OK to ${to}: messageId=${data.id}`);
+    return { success: true, messageId: data.id };
   } catch (error) {
-    logEmail('error', `FAILED to ${to}: "${subject}" via ${configStr} — ${error.message}`);
+    logEmail('error', `FAILED to ${to}: "${subject}" via Resend — ${error.message}`);
     return { success: false, error: error.message };
   }
 };
@@ -743,12 +731,12 @@ const sendDepositApprovedEmail = async (user, deposit) => {
 };
 
 /**
- * Single summary email to the admin inbox (the4xhub@gmail.com by default)
+ * Single summary email to the admin inbox (RESEND_FROM_EMAIL by default)
  * whenever a student performs any activity (login, activation, purchase,
  * lesson completion, quiz submission, withdrawal request, etc.).
  */
 const sendAdminActivityEmail = async (student, activity) => {  const name = await getBrandName();
-  const to = (await Setting.getByKey('admin_notification_email', null)) || process.env.EMAIL_USER || 'the4xhub@gmail.com';
+  const to = (await Setting.getByKey('admin_notification_email', null)) || process.env.RESEND_FROM_EMAIL || 'no-reply@the4xhub.com';
   const label = activity.label || activity.action || 'Activity';
 
   const detailRows = activity.details

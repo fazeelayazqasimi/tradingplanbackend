@@ -1,19 +1,17 @@
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const emailTemplate = require('./template');
 
-const createTransporter = () => {
-  return nodemailer.createTransport({
-    host: process.env.EMAIL_HOST,
-    port: process.env.EMAIL_PORT,
-    secure: false,
-    auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-  });
+const createResendClient = () => {
+  return new Resend(process.env.RESEND_API_KEY);
 };
 
 const sendEmail = async ({ to, subject, html }) => {
   try {
-    const transporter = createTransporter();
-    await transporter.sendMail({ from: `"Dream Trader" <${process.env.EMAIL_USER}>`, to, subject, html });
+    const resend = createResendClient();
+    const from = `"Dream Trader" <${process.env.RESEND_FROM_EMAIL || 'no-reply@the4xhub.com'}>`;
+    const { data, error } = await resend.emails.send({ from, to, subject, html });
+    if (error) throw error;
+    console.log('[EMAIL] Sent OK to', to, 'messageId=', data.id);
   } catch (error) {
     console.error('Email send error:', error.message);
   }

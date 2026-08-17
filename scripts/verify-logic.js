@@ -12,11 +12,11 @@
  */
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 
-// Fail email sends instantly (SMTP is not reachable from this test runner).
+// Fail email sends instantly (the Resend API is not reachable with an
+// invalid key from this test runner — calls fail fast with a 401).
 // All email code paths still execute — they just fail fast instead of
-// waiting ~20s for a connection timeout.
-process.env.EMAIL_HOST = '127.0.0.1';
-process.env.EMAIL_PORT = '1';
+// attempting a real delivery.
+process.env.RESEND_API_KEY = 'invalid-key-for-test';
 
 const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
