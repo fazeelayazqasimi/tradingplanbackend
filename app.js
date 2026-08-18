@@ -124,6 +124,7 @@ app.use('/api/crm', require('./routes/crm'));
 app.use('/api/media', require('./routes/media'));
 app.use('/api/classes', require('./routes/classes'));
 app.use('/api/business-profiles', require('./routes/businessProfiles'));
+app.use('/api/chats', require('./routes/chats'));
 
 const { errorHandler, notFound } = require('./middleware/error');
 app.use(notFound);
