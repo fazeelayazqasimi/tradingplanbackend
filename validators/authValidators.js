@@ -52,7 +52,27 @@ const forgotPasswordValidator = [
     .normalizeEmail(),
 ];
 
+const verifyResetOTPValidator = [
+  body('email')
+    .trim()
+    .isEmail()
+    .withMessage('Please provide a valid email')
+    .normalizeEmail(),
+  body('otp')
+    .trim()
+    .matches(/^\d{6}$/)
+    .withMessage('OTP must be 6 digits'),
+];
+
 const resetPasswordValidator = [
+  body('email')
+    .trim()
+    .isEmail()
+    .withMessage('Please provide a valid email')
+    .normalizeEmail(),
+  body('token')
+    .notEmpty()
+    .withMessage('Reset token is required'),
   passwordValidation('password'),
   body('confirmPassword')
     .notEmpty()
@@ -86,5 +106,6 @@ module.exports = {
   loginValidator,
   forgotPasswordValidator,
   resetPasswordValidator,
+  verifyResetOTPValidator,
   changePasswordValidator,
 };

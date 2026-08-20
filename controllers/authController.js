@@ -9,7 +9,7 @@ const { checkAndPromoteRank } = require('../services/rankService');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { sendSuccess, sendError } = require('../helpers/response');
-const { sendWelcomeEmail, sendVerificationEmail, sendPasswordResetEmail, sendReferralSignupEmail, sendOTPEmail } = require('../services/emailService');
+const { sendWelcomeEmail, sendVerificationEmail, sendReferralSignupEmail, sendOTPEmail } = require('../services/emailService');
 const { generateReferralCode, processReferralCommission } = require('../services/referralService');
 const { creditWallet } = require('../services/walletService');
 const { sendSMS } = require('../services/smsService');
@@ -229,18 +229,67 @@ exports.getMe = async (req, res, next) => {
 
 exports.forgotPassword = async (req, res, next) => {
   try {
-    const user = await User.findOne({ email: req.body.email });
-    if (!user) return sendError(res, 'No user found with this email', 404);
+    const { email } = req.body;
+    const normalized = normalizeEmail(email);
 
-    const resetToken = crypto.randomBytes(20).toString('hex');
+    const user = await User.findOne({ email: normalized });
+    if (!user) {
+      return sendSuccess(res, null, 'If this email is registered, an OTP has been sent');
+    }
+
+    const otp = crypto.randomInt(100000, 1000000).toString();
+    const expires = new Date(Date.now() + 5 * 60 * 1000);
+
+    const TempOTP = require('../models/TempOTP');
+    await TempOTP.findOneAndUpdate(
+      { email: normalized, purpose: 'password-reset' },
+      { email: normalized, otp, expires, purpose: 'password-reset', verified: false, usedAt: null },
+      { upsert: true, new: true }
+    );
+
+    const result = await sendOTPEmail(normalized, otp);
+    if (!result.success) {
+      console.error('[FORGOT-PASSWORD] Failed to send OTP email:', result.error);
+    }
+
+    sendSuccess(res, null, 'If this email is registered, an OTP has been sent');
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.verifyResetOTP = async (req, res, next) => {
+  try {
+    const { email, otp } = req.body;
+    const normalized = normalizeEmail(email);
+
+    const TempOTP = require('../models/TempOTP');
+    const record = await TempOTP.findOne({ email: normalized, purpose: 'password-reset' });
+
+    if (!record) return sendError(res, 'No OTP found. Please request a new one.', 400);
+    if (record.verified) return sendError(res, 'OTP has already been used. Please request a new one.', 400);
+    if (record.expires < new Date()) {
+      await TempOTP.deleteOne({ _id: record._id });
+      return sendError(res, 'OTP expired. Please request a new one.', 400);
+    }
+    if (record.otp !== otp) return sendError(res, 'Invalid OTP', 400);
+
+    const user = await User.findOne({ email: normalized });
+    if (!user) {
+      await TempOTP.deleteOne({ _id: record._id });
+      return sendError(res, 'No account found for this email', 400);
+    }
+
+    record.verified = true;
+    record.usedAt = new Date();
+    await record.save();
+
+    const resetToken = crypto.randomBytes(32).toString('hex');
     user.passwordResetToken = crypto.createHash('sha256').update(resetToken).digest('hex');
     user.passwordResetExpires = Date.now() + 10 * 60 * 1000;
     await user.save({ validateBeforeSave: false });
 
-    const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
-    await sendPasswordResetEmail(user, resetUrl);
-
-    sendSuccess(res, null, 'Password reset email sent');
+    sendSuccess(res, { resetToken }, 'OTP verified. You can now reset your password.');
   } catch (error) {
     next(error);
   }
@@ -248,20 +297,28 @@ exports.forgotPassword = async (req, res, next) => {
 
 exports.resetPassword = async (req, res, next) => {
   try {
-    const hashedToken = crypto.createHash('sha256').update(req.params.token).digest('hex');
+    const { token, email, password } = req.body;
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+    const normalized = normalizeEmail(email);
 
     const user = await User.findOne({
       passwordResetToken: hashedToken,
       passwordResetExpires: { $gt: Date.now() },
     });
     if (!user) return sendError(res, 'Invalid or expired reset token', 400);
+    if (user.email !== normalized) return sendError(res, 'Invalid or expired reset token', 400);
 
-    user.password = req.body.password;
+    user.password = password;
     user.passwordResetToken = undefined;
     user.passwordResetExpires = undefined;
     await user.save();
 
-    sendTokenResponse(user, 200, res, 'Password reset successful');
+    const TempOTP = require('../models/TempOTP');
+    await TempOTP.deleteOne({ email: normalized, purpose: 'password-reset' });
+
+    notifyStudentActivity({ user, action: 'password_reset', details: { email: user.email } });
+
+    sendSuccess(res, null, 'Password reset successful. You can now log in.');
   } catch (error) {
     next(error);
   }
