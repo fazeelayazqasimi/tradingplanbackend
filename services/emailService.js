@@ -766,6 +766,57 @@ const sendAdminActivityEmail = async (student, activity) => {  const name = awai
   return sendEmail({ to, subject: `[Student Activity] ${student.firstName || ''} ${student.lastName || ''} - ${label}`, html });
 };
 
+const sendSignalClosedEmail = async (users, signal, closePrice) => {
+  const name = await getBrandName();
+  const price = closePrice != null ? Number(closePrice) : signal.currentPrice;
+  const html = buildTemplate('Signal Closed', `
+    <h2 style="margin:0 0 16px 0;color:#1f2937;font-size:20px;">Signal Closed</h2>
+    <p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.6;">
+      The ${signal.symbol} ${signal.action} signal has been closed${price != null ? ` at ${price}` : ''}. Review the outcome below and manage your positions accordingly.
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;margin:16px 0;">
+      <tr>
+        <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Symbol</strong></td>
+        <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;">${signal.symbol}</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Action</strong></td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:${signal.action.startsWith('BUY') ? '#16a34a' : '#dc2626'};">${signal.action} ${signal.side || ''}</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Entry Price</strong></td>
+        <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;">${signal.openPrice}</td>
+      </tr>
+      ${price != null ? `
+      <tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Close Price</strong></td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;">${price}</td>
+      </tr>
+      ` : ''}
+      <tr>
+        <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Profit / Loss</strong></td>
+        <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:${(signal.profit || 0) >= 0 ? '#16a34a' : '#dc2626'};">${(signal.profit || 0) >= 0 ? '+' : '-'}$${Number(Math.abs(signal.profit || 0)).toFixed(2)} ${signal.pips ? `(${signal.pips} pips)` : ''}</td>
+      </tr>
+    </table>
+    <p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.6;">
+      Every trade — win or lose — is a lesson. Keep following the plan, manage your risk, and stay disciplined.
+    </p>
+    <div style="text-align:center;margin:24px 0;">
+      <a href="${process.env.FRONTEND_URL}/signals" style="background-color:#f59e0b;color:#ffffff;padding:12px 28px;text-decoration:none;border-radius:6px;font-size:15px;font-weight:600;display:inline-block;">View Signals</a>
+    </div>
+  `, name);
+
+  const userArray = Array.isArray(users) ? users : [users];
+  const results = await Promise.allSettled(
+    userArray.map((user) => sendEmail({
+      to: user.email,
+      subject: `Signal Closed: ${signal.symbol} ${signal.action} — ${name}`,
+      html
+    }))
+  );
+  return results;
+};
+
 module.exports = {
   sendEmail,
   sendWelcomeEmail,
@@ -780,6 +831,7 @@ module.exports = {
   sendSignalPublishedEmail,
   sendSignalTPHitEmail,
   sendSignalSLHitEmail,
+  sendSignalClosedEmail,
   sendAnnouncementEmail,
   sendReferralSignupEmail,
   sendCourseEnrollmentPendingEmail,

@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { getSignals, getSignal, createSignal, updateSignal, deleteSignal, getSignalStats, hitTakeProfit, hitStopLoss, runResultCheck } = require('../controllers/signalController');
+const { getSignals, getSignal, createSignal, updateSignal, deleteSignal, getSignalStats, hitTakeProfit, hitStopLoss, closeSignal, runResultCheck } = require('../controllers/signalController');
 const { protect, authorize } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 const { createSignalValidator, updateSignalValidator } = require('../validators/signalValidators');
@@ -12,6 +12,7 @@ router.put('/:id', protect, authorize('admin'), validate(updateSignalValidator),
 router.delete('/:id', protect, authorize('admin'), deleteSignal);
 router.post('/:id/hit-tp', protect, authorize('admin'), hitTakeProfit);
 router.post('/:id/hit-sl', protect, authorize('admin'), hitStopLoss);
+router.post('/:id/close', protect, authorize('admin'), closeSignal);
 router.post('/run-check', protect, authorize('admin'), runResultCheck);
 
 module.exports = router;

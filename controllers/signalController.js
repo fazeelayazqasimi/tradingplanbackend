@@ -4,7 +4,7 @@ const Notification = require('../models/Notification');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions } = require('../helpers/pagination');
 const { sendSignalPublishedEmail } = require('../services/emailService');
-const { resolveSignal, checkOpenSignals } = require('../services/signalResultService');
+const { resolveSignal, checkOpenSignals, closeSignal: closeSignalService } = require('../services/signalResultService');
 const { getLiveQuote } = require('../services/liveRatesService');
 
 const normalizeMultiLevels = (body) => {
@@ -139,6 +139,20 @@ exports.hitStopLoss = async (req, res, next) => {
     const result = await resolveSignal(req.params.id, 'sl', price);
     if (!result.resolved) return sendError(res, result.reason || 'Unable to resolve signal', 400);
     sendSuccess(res, result.signal, 'Stop loss hit. Motivational email sent to all students');
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.closeSignal = async (req, res, next) => {
+  try {
+    const signal = await Signal.findById(req.params.id);
+    if (!signal) return sendError(res, 'Signal not found', 404);
+
+    const price = req.body.price != null ? Number(req.body.price) : await getLiveQuote(signal.symbol);
+    const result = await closeSignalService(req.params.id, price);
+    if (!result.closed) return sendError(res, result.reason || 'Unable to close signal', 400);
+    sendSuccess(res, result.signal, 'Signal closed. Email sent to all students');
   } catch (error) {
     next(error);
   }

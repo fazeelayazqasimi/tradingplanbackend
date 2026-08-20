@@ -2,7 +2,7 @@ const Signal = require('../models/Signal');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
 const { getLiveQuotes, normalizeSymbol, getPipSize } = require('./liveRatesService');
-const { sendSignalTPHitEmail, sendSignalSLHitEmail } = require('./emailService');
+const { sendSignalTPHitEmail, sendSignalSLHitEmail, sendSignalClosedEmail } = require('./emailService');
 
 const getTpLabel = (signal, tpIndex) => {
   if (!signal.takeProfits || signal.takeProfits.length === 0) return null;
@@ -138,6 +138,62 @@ const resolveSignal = async (signalId, outcome, price, options = {}) => {
   return { resolved: true, outcome, signal };
 };
 
+const notifySignalClosed = async (signal, closePrice) => {
+  try {
+    const students = await User.find({ role: 'student', isActive: true }).select('email firstName _id');
+    if (students.length === 0) return;
+
+    sendSignalClosedEmail(students, signal, closePrice);
+
+    const title = `Signal Closed: ${signal.symbol} ${signal.action}`;
+    const message = `The ${signal.symbol} signal has been closed${closePrice != null ? ` at ${closePrice}` : ''}. Review the outcome and stay disciplined!`;
+
+    const notifications = students.map((s) => ({
+      userId: s._id,
+      type: 'signal',
+      title,
+      message,
+      link: '/student/signals',
+      relatedId: signal._id,
+    }));
+    await Notification.insertMany(notifications);
+  } catch (e) {
+    console.error('[SIGNAL RESULT] Close notification/email error:', e.message);
+  }
+};
+
+/**
+ * Manually close an open signal (admin action). Idempotent — a signal
+ * already closed is left untouched. Emails all students and creates
+ * in-app notifications.
+ */
+const closeSignal = async (signalId, price, options = {}) => {
+  const { sendEmail = true } = options;
+  const signal = await Signal.findById(signalId);
+  if (!signal) return { closed: false, reason: 'Signal not found' };
+  if (signal.status === 'closed') return { closed: false, reason: 'Signal already closed', signal };
+
+  const isLong = (signal.action.startsWith('BUY') && signal.side !== 'SHORT') || signal.side === 'LONG';
+  const closePrice = price != null ? Number(price) : (signal.currentPrice ?? signal.openPrice);
+  const profit = isLong ? (closePrice - signal.openPrice) : (signal.openPrice - closePrice);
+  const pipSize = getPipSize(signal.symbol);
+
+  signal.status = 'closed';
+  signal.closeTime = new Date();
+  signal.currentPrice = closePrice;
+  signal.lastCheckedPrice = closePrice;
+  signal.lastCheckedAt = new Date();
+  signal.profit = Number(profit.toFixed(2));
+  signal.pips = Number((profit / pipSize).toFixed(1));
+  await signal.save();
+
+  if (sendEmail) {
+    notifySignalClosed(signal, closePrice);
+  }
+
+  return { closed: true, signal };
+};
+
 /**
  * Auto-scan all open published signals with TP/SL levels against live rates.
  * Called periodically (server.js) — one batched API call per run.
@@ -208,4 +264,4 @@ const checkOpenSignals = async () => {
   }
 };
 
-module.exports = { resolveSignal, checkOpenSignals };
+module.exports = { resolveSignal, checkOpenSignals, closeSignal };
