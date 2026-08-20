@@ -30,11 +30,13 @@ exports.create = async (req, res, next) => {
     if (!title) return sendError(res, 'Title is required', 400);
     const imagePaths = (req.files || []).filter(f => f.mimetype.startsWith('image/')).map(f => f.path.replace(/\\/g, '/'));
     const videoPaths = (req.files || []).filter(f => f.mimetype.startsWith('video/')).map(f => f.path.replace(/\\/g, '/'));
-    if (imagePaths.length === 0 && videoPaths.length === 0) return sendError(res, 'At least one image or video is required', 400);
+    const documentPaths = (req.files || []).filter(f => !f.mimetype.startsWith('image/') && !f.mimetype.startsWith('video/')).map(f => f.path.replace(/\\/g, '/'));
+    if (imagePaths.length === 0 && videoPaths.length === 0 && documentPaths.length === 0) return sendError(res, 'At least one image, video or document is required', 400);
     const media = await Media.create({
       title,
       images: imagePaths,
       videos: videoPaths,
+      documents: documentPaths,
       uploadedBy: req.user._id,
     });
     sendSuccess(res, media, 'Media created', 201);
@@ -49,8 +51,10 @@ exports.update = async (req, res, next) => {
     if (req.files && req.files.length > 0) {
       const newImages = req.files.filter(f => f.mimetype.startsWith('image/')).map(f => f.path.replace(/\\/g, '/'));
       const newVideos = req.files.filter(f => f.mimetype.startsWith('video/')).map(f => f.path.replace(/\\/g, '/'));
+      const newDocuments = req.files.filter(f => !f.mimetype.startsWith('image/') && !f.mimetype.startsWith('video/')).map(f => f.path.replace(/\\/g, '/'));
       media.images = media.images.concat(newImages);
       media.videos = media.videos.concat(newVideos);
+      media.documents = media.documents.concat(newDocuments);
     }
     if (req.body.removeImages) {
       const remove = JSON.parse(req.body.removeImages);

@@ -1,5 +1,8 @@
 const { Resend } = require('resend');
+const crypto = require('crypto');
 const Setting = require('../models/Setting');
+const User = require('../models/User');
+const EmailJob = require('../models/EmailJob');
 
 const getBrandName = async () => {
   try {
@@ -61,6 +64,10 @@ const buildTemplate = (title, bodyContent, instituteName = 'The 4x Hub') => {
 
 const sendEmail = async ({ to, subject, html, fromName }) => {
   try {
+    if (process.env.BULK_EMAIL_DRY_RUN === '1') {
+      logEmail('info', `[DRY RUN] Would send to ${to}: "${subject}"`);
+      return { success: true, messageId: 'dry-run' };
+    }
     if (!process.env.RESEND_API_KEY) {
       const msg = 'RESEND_API_KEY is not configured in the environment';
       logEmail('error', `${msg} — cannot send to ${to}: "${subject}"`);
@@ -91,6 +98,184 @@ const sendEmail = async ({ to, subject, html, fromName }) => {
 const withBrand = (fn) => async (...args) => {
   const name = await getBrandName();
   return fn(name, ...args);
+};
+
+// ---------------------------------------------------------------------------
+// Broadcast email helpers (system-wide emails only)
+// ---------------------------------------------------------------------------
+
+const EMAIL_REGEX = /^\S+@\S+\.\S+$/;
+
+const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
+
+/**
+ * Fetch every registered user who has a valid, non-empty email address.
+ * No role/isActive filtering. Duplicate email addresses removed.
+ */
+const getEmailRecipients = async () => {
+  const users = await User.find({ email: { $exists: true, $ne: '' } })
+    .select('email firstName _id')
+    .lean();
+  const seen = new Set();
+  const recipients = [];
+  for (const u of users) {
+    const email = normalizeEmail(u.email);
+    if (!email || !EMAIL_REGEX.test(email)) continue;
+    if (seen.has(email)) continue;
+    seen.add(email);
+    recipients.push({ _id: u._id, email, firstName: u.firstName });
+  }
+  return recipients;
+};
+
+/**
+ * Send to many recipients in controlled batches (default 10 at a time) so the
+ * provider rate limit is respected. One failed recipient never stops the rest.
+ * Returns/logs: total, sent, failed, skipped.
+ */
+const sendBulkEmails = async ({ users, subject, html, batchSize = 10 }) => {
+  const list = Array.isArray(users) ? users : [users];
+  let sent = 0;
+  let failed = 0;
+  let skipped = 0;
+
+  for (let i = 0; i < list.length; i += batchSize) {
+    const batch = list.slice(i, i + batchSize);
+    const results = await Promise.allSettled(
+      batch.map(async (user) => {
+        const email = normalizeEmail(user && user.email);
+        if (!email || !EMAIL_REGEX.test(email)) {
+          skipped += 1;
+          return;
+        }
+        const result = await sendEmail({ to: email, subject, html });
+        if (result.success) sent += 1;
+        else {
+          failed += 1;
+          logEmail('error', `[BROADCAST] Failed → ${email}: ${result.error || 'unknown error'}`);
+        }
+      })
+    );
+    results.forEach((r, idx) => {
+      if (r.status === 'rejected') {
+        failed += 1;
+        logEmail('error', `[BROADCAST] Failed → ${batch[idx] && batch[idx].email}: ${(r.reason && r.reason.message) || 'unknown error'}`);
+      }
+    });
+  }
+
+  const summary = { total: list.length, sent, failed, skipped };
+  logEmail('info', `[BROADCAST] Summary: total=${summary.total}, sent=${summary.sent}, failed=${summary.failed}, skipped=${summary.skipped}`);
+  return summary;
+};
+
+/**
+ * Queue a broadcast into EmailJob (deduped by broadcastId+email unique index).
+ * Fast bulk insert — safe for serverless request lifetimes.
+ */
+const enqueueBroadcastEmail = async ({ type, users, subject, html, broadcastId }) => {
+  const list = Array.isArray(users) ? users : [users];
+  const seen = new Set();
+  const jobs = [];
+  for (const u of list) {
+    const email = normalizeEmail(u && u.email);
+    if (!email || !EMAIL_REGEX.test(email)) continue;
+    if (seen.has(email)) continue;
+    seen.add(email);
+    jobs.push({
+      email,
+      subject,
+      html,
+      type,
+      broadcastId,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+    });
+  }
+
+  if (jobs.length === 0) {
+    return { total: 0, queued: 0, sent: 0, failed: 0, skipped: list.length };
+  }
+
+  try {
+    await EmailJob.bulkWrite(
+      jobs.map((doc) => ({ insertOne: { document: doc } })),
+      { ordered: false }
+    );
+  } catch (err) {
+    logEmail('warn', `[BROADCAST] Some entries already queued for ${broadcastId}: ${err.message}`);
+  }
+
+  const queued = await EmailJob.countDocuments({ broadcastId });
+  const summary = { total: queued, queued, sent: 0, failed: 0, skipped: list.length - queued };
+  logEmail('info', `[BROADCAST] Queued: total=${queued} (broadcastId=${broadcastId})`);
+  return summary;
+};
+
+/**
+ * Worker: process pending EmailJob entries in batches (default 100 per run).
+ * Max 3 attempts per email, then marked failed. Never blocks on one recipient.
+ */
+const processEmailQueue = async ({ limit = 100, batchSize = 10 } = {}) => {
+  const jobs = await EmailJob.find({ status: 'pending' })
+    .sort({ createdAt: 1 })
+    .limit(limit)
+    .select('_id email subject html attempts');
+  if (jobs.length === 0) {
+    const remaining = await EmailJob.countDocuments({ status: 'pending' });
+    return { processed: 0, sent: 0, failed: 0, remaining };
+  }
+
+  const ids = jobs.map((j) => j._id);
+  await EmailJob.updateMany({ _id: { $in: ids }, status: 'pending' }, { $set: { status: 'processing' } });
+
+  let sent = 0;
+  let failed = 0;
+
+  for (let i = 0; i < jobs.length; i += batchSize) {
+    const batch = jobs.slice(i, i + batchSize);
+    await Promise.allSettled(
+      batch.map(async (job) => {
+        const result = await sendEmail({ to: job.email, subject: job.subject, html: job.html });
+        if (result.success) {
+          sent += 1;
+          await EmailJob.updateOne({ _id: job._id }, { $set: { status: 'sent', processedAt: new Date() } });
+          return;
+        }
+        const attempts = (job.attempts || 0) + 1;
+        failed += 1;
+        logEmail('error', `[QUEUE] Failed → ${job.email}: ${result.error || 'unknown error'} (attempt ${attempts})`);
+        await EmailJob.updateOne(
+          { _id: job._id },
+          {
+            $set: {
+              status: attempts >= 3 ? 'failed' : 'pending',
+              attempts,
+              lastError: result.error || 'unknown error',
+              processedAt: new Date()
+            }
+          }
+        );
+      })
+    );
+  }
+
+  const remaining = await EmailJob.countDocuments({ status: 'pending' });
+  const summary = { processed: jobs.length, sent, failed, remaining };
+  logEmail('info', `[QUEUE] Processed=${summary.processed}, sent=${summary.sent}, failed=${summary.failed}, remaining=${summary.remaining}`);
+  return summary;
+};
+
+/**
+ * Route a broadcast through sync batching or the queue depending on
+ * BULK_EMAIL_MODE (default: queue on Vercel, sync elsewhere).
+ */
+const deliverBroadcast = async ({ type, users, subject, html }) => {
+  const mode = process.env.BULK_EMAIL_MODE || (process.env.VERCEL ? 'queue' : 'sync');
+  if (mode === 'queue') {
+    const broadcastId = `${type}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    return enqueueBroadcastEmail({ type, users, subject, html, broadcastId });
+  }
+  return sendBulkEmails({ users, subject, html });
 };
 
 const sendWelcomeEmail = async (user) => {
@@ -346,16 +531,12 @@ const sendSignalPublishedEmail = async (users, signal) => {
     </div>
   `, name);
 
-  const userArray = Array.isArray(users) ? users : [users];
-  const results = await Promise.allSettled(
-    userArray.map((user) => sendEmail({
-      to: user.email,
-      subject: `New Signal: ${signal.action} ${signal.symbol} at ${signal.openPrice} - ${name}`,
-      html
-    }))
-  );
-
-  return results;
+  return deliverBroadcast({
+    type: 'signal_published',
+    users,
+    subject: `New Signal: ${signal.action} ${signal.symbol} at ${signal.openPrice} - ${name}`,
+    html
+  });
 };
 
 const sendSignalTPHitEmail = async (users, signal, tpIndex = null) => {
@@ -401,15 +582,12 @@ const sendSignalTPHitEmail = async (users, signal, tpIndex = null) => {
     </div>
   `, name);
 
-  const userArray = Array.isArray(users) ? users : [users];
-  const results = await Promise.allSettled(
-    userArray.map((user) => sendEmail({
-      to: user.email,
-      subject: `${tpLabel ? `${tpLabel} Hit` : 'Target Hit'}: ${signal.symbol} ${signal.action} — ${name}`,
-      html
-    }))
-  );
-  return results;
+  return deliverBroadcast({
+    type: 'signal_tp',
+    users,
+    subject: `${tpLabel ? `${tpLabel} Hit` : 'Target Hit'}: ${signal.symbol} ${signal.action} — ${name}`,
+    html
+  });
 };
 
 const sendSignalSLHitEmail = async (users, signal) => {
@@ -452,15 +630,12 @@ const sendSignalSLHitEmail = async (users, signal) => {
     </div>
   `, name);
 
-  const userArray = Array.isArray(users) ? users : [users];
-  const results = await Promise.allSettled(
-    userArray.map((user) => sendEmail({
-      to: user.email,
-      subject: `Stop Loss Hit: ${signal.symbol} ${signal.action} — Stay Strong! ${name}`,
-      html
-    }))
-  );
-  return results;
+  return deliverBroadcast({
+    type: 'signal_sl',
+    users,
+    subject: `Stop Loss Hit: ${signal.symbol} ${signal.action} — Stay Strong! ${name}`,
+    html
+  });
 };
 
 const sendAnnouncementEmail = async (users, announcement) => {
@@ -479,16 +654,12 @@ const sendAnnouncementEmail = async (users, announcement) => {
     </div>
   `, name);
 
-  const userArray = Array.isArray(users) ? users : [users];
-  const results = await Promise.allSettled(
-    userArray.map((user) => sendEmail({
-      to: user.email,
-      subject: `${announcement.title} - ${name}`,
-      html
-    }))
-  );
-
-  return results;
+  return deliverBroadcast({
+    type: 'announcement',
+    users,
+    subject: `${announcement.title} - ${name}`,
+    html
+  });
 };
 
 const sendReferralSignupEmail = async (user, referredUser) => {
@@ -668,15 +839,12 @@ const sendClassPublishedEmail = async (users, classSession) => {
     </div>
   `, name);
 
-  const userArray = Array.isArray(users) ? users : [users];
-  const results = await Promise.allSettled(
-    userArray.map((user) => sendEmail({
-      to: user.email,
-      subject: `New ${typeLabel}: ${classSession.title} - ${name}`,
-      html
-    }))
-  );
-  return results;
+  return deliverBroadcast({
+    type: 'class',
+    users,
+    subject: `New ${typeLabel}: ${classSession.title} - ${name}`,
+    html
+  });
 };
 
 const sendDepositRequestEmail = async (user, deposit) => {
@@ -806,15 +974,12 @@ const sendSignalClosedEmail = async (users, signal, closePrice) => {
     </div>
   `, name);
 
-  const userArray = Array.isArray(users) ? users : [users];
-  const results = await Promise.allSettled(
-    userArray.map((user) => sendEmail({
-      to: user.email,
-      subject: `Signal Closed: ${signal.symbol} ${signal.action} — ${name}`,
-      html
-    }))
-  );
-  return results;
+  return deliverBroadcast({
+    type: 'signal_closed',
+    users,
+    subject: `Signal Closed: ${signal.symbol} ${signal.action} — ${name}`,
+    html
+  });
 };
 
 module.exports = {
@@ -842,5 +1007,9 @@ module.exports = {
   sendClassPublishedEmail,
   sendDepositRequestEmail,
   sendDepositApprovedEmail,
-  sendAdminActivityEmail
+  sendAdminActivityEmail,
+  getEmailRecipients,
+  sendBulkEmails,
+  enqueueBroadcastEmail,
+  processEmailQueue
 };

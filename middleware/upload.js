@@ -125,10 +125,12 @@ const uploadMedia = multer({
   fileFilter: (req, file, cb) => {
     const allowedImage = /jpeg|jpg|png|gif|webp/;
     const allowedVideo = /mp4|webm|mov|avi|mkv|flv|wmv/;
-    const extname = allowedImage.test(path.extname(file.originalname).toLowerCase()) || allowedVideo.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = file.mimetype.startsWith("image/") || file.mimetype.startsWith("video/");
+    const allowedDoc = /pdf|doc|docx|ppt|pptx|xls|xlsx|txt/;
+    const ext = path.extname(file.originalname).toLowerCase();
+    const extname = allowedImage.test(ext) || allowedVideo.test(ext) || allowedDoc.test(ext);
+    const mimetype = file.mimetype.startsWith("image/") || file.mimetype.startsWith("video/") || /pdf|msword|ms-excel|powerpoint|text|officedocument/.test(file.mimetype);
     if (extname && mimetype) return cb(null, true);
-    cb(new Error("Only image (jpeg, jpg, png, gif, webp) and video (mp4, webm, mov, avi, mkv, flv, wmv) files are allowed"), false);
+    cb(new Error("Only image (jpeg, jpg, png, gif, webp), video (mp4, webm, mov, avi, mkv, flv, wmv) and document (pdf, doc, docx, ppt, pptx, xls, xlsx, txt) files are allowed"), false);
   },
 });
 

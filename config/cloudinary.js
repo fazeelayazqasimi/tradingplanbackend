@@ -15,10 +15,28 @@ if (cloudName && apiKey && apiSecret) {
 
   mediaStorage = new CloudinaryStorage({
     cloudinary,
-    params: {
-      folder: 'media',
-      allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp'],
-      transformation: [{ quality: 'auto', fetch_format: 'auto' }],
+    params: (req, file) => {
+      const mime = (file && file.mimetype) || '';
+      if (mime.startsWith('video/')) {
+        return {
+          folder: 'media',
+          resource_type: 'video',
+          allowed_formats: ['mp4', 'webm', 'mov', 'avi', 'mkv', 'flv', 'wmv'],
+          chunk_size: 6000000,
+        };
+      }
+      if (mime.startsWith('image/')) {
+        return {
+          folder: 'media',
+          allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp'],
+          transformation: [{ quality: 'auto', fetch_format: 'auto' }],
+        };
+      }
+      return {
+        folder: 'media',
+        resource_type: 'auto',
+        allowed_formats: ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'txt'],
+      };
     },
   });
 

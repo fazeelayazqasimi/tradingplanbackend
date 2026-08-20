@@ -3,7 +3,7 @@ const User = require('../models/User');
 const Notification = require('../models/Notification');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions } = require('../helpers/pagination');
-const { sendSignalPublishedEmail } = require('../services/emailService');
+const { sendSignalPublishedEmail, getEmailRecipients } = require('../services/emailService');
 const { resolveSignal, checkOpenSignals, closeSignal: closeSignalService } = require('../services/signalResultService');
 const { getLiveQuote } = require('../services/liveRatesService');
 
@@ -57,9 +57,9 @@ exports.createSignal = async (req, res, next) => {
     const signal = await Signal.create({ ...normalizeMultiLevels({ ...req.body }), userId: req.user._id });
     if (signal.isPublished) {
       try {
-        const students = await User.find({ role: 'student', isActive: true }).select('email firstName _id');
+        const students = await getEmailRecipients();
         if (students.length > 0) {
-          sendSignalPublishedEmail(students, signal);
+          await sendSignalPublishedEmail(students, signal);
           const notifications = students.map(s => ({
             userId: s._id,
             type: 'signal',
@@ -87,9 +87,9 @@ exports.updateSignal = async (req, res, next) => {
     await existing.save();
     if (req.body.isPublished === true && !wasPublished) {
       try {
-        const students = await User.find({ role: 'student', isActive: true }).select('email firstName _id');
+        const students = await getEmailRecipients();
         if (students.length > 0) {
-          sendSignalPublishedEmail(students, existing);
+          await sendSignalPublishedEmail(students, existing);
           const notifications = students.map(s => ({
             userId: s._id,
             type: 'signal',

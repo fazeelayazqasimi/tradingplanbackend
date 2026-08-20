@@ -1,8 +1,7 @@
 const Announcement = require('../models/Announcement');
-const User = require('../models/User');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions } = require('../helpers/pagination');
-const { sendAnnouncementEmail } = require('../services/emailService');
+const { sendAnnouncementEmail, getEmailRecipients } = require('../services/emailService');
 
 const toPublicUrl = (file, folder) => {
   const p = file && file.path;
@@ -60,8 +59,8 @@ exports.createAnnouncement = async (req, res, next) => {
   try {
     const announcement = await Announcement.create({ ...req.body, authorId: req.user._id });
     try {
-      const students = await User.find({ role: 'student', isActive: true }).select('email firstName');
-      if (students.length > 0) sendAnnouncementEmail(students, announcement);
+      const students = await getEmailRecipients();
+      if (students.length > 0) await sendAnnouncementEmail(students, announcement);
     } catch (e) { console.error('[EMAIL] sendAnnouncementEmail:', e.message); }
     sendSuccess(res, announcement, 'Created', 201);
   } catch (error) { next(error); }
