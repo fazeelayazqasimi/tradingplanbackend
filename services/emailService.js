@@ -133,7 +133,7 @@ const getEmailRecipients = async () => {
  * provider rate limit is respected. One failed recipient never stops the rest.
  * Returns/logs: total, sent, failed, skipped.
  */
-const sendBulkEmails = async ({ users, subject, html, batchSize = 10 }) => {
+const sendBulkEmails = async ({ users, subject, html, batchSize = 50 }) => {
   const list = Array.isArray(users) ? users : [users];
   let sent = 0;
   let failed = 0;

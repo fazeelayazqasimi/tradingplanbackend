@@ -58,18 +58,31 @@ exports.uploadVideo = async (req, res, next) => {
 exports.createAnnouncement = async (req, res, next) => {
   try {
     const announcement = await Announcement.create({ ...req.body, authorId: req.user._id });
-    try {
-      const students = await getEmailRecipients();
-      if (students.length > 0) await sendAnnouncementEmail(students, announcement);
-    } catch (e) { console.error('[EMAIL] sendAnnouncementEmail:', e.message); }
+    if (announcement.isPublished) {
+      try {
+        const students = await getEmailRecipients();
+        if (students.length > 0) await sendAnnouncementEmail(students, announcement);
+      } catch (e) { console.error('[EMAIL] sendAnnouncementEmail:', e.message); }
+    }
     sendSuccess(res, announcement, 'Created', 201);
   } catch (error) { next(error); }
 };
 
 exports.updateAnnouncement = async (req, res, next) => {
   try {
+    const oldAnnouncement = await Announcement.findById(req.params.id);
+    const wasPublished = oldAnnouncement?.isPublished;
+    console.log('[DEBUG UPDATE] old isPublished:', wasPublished, 'new body isPublished:', req.body.isPublished);
     const announcement = await Announcement.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
     if (!announcement) return sendError(res, 'Not found', 404);
+    console.log('[DEBUG UPDATE] after update isPublished:', announcement.isPublished, 'shouldSend:', announcement.isPublished && !wasPublished);
+    if (announcement.isPublished && !wasPublished) {
+      try {
+        const students = await getEmailRecipients();
+        console.log('[DEBUG UPDATE] recipients:', students.length);
+        if (students.length > 0) await sendAnnouncementEmail(students, announcement);
+      } catch (e) { console.error('[EMAIL] sendAnnouncementEmail:', e.message); }
+    }
     sendSuccess(res, announcement, 'Updated');
   } catch (error) { next(error); }
 };
