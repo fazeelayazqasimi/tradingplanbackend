@@ -669,12 +669,21 @@ const sendSignalSLHitEmail = async (users, signal) => {
 
 const sendAnnouncementEmail = async (users, announcement) => {
   const name = await getBrandName();
+  const imageHtml = announcement.image ? `
+    <div style="margin:16px 0;text-align:center;">
+      <img src="${announcement.image.startsWith('http') ? announcement.image : (process.env.BACKEND_URL || '') + announcement.image}" 
+           alt="${announcement.title}" 
+           style="max-width:100%;height:auto;border-radius:8px;border:1px solid #e5e7eb;">
+    </div>
+  ` : '';
+
   const html = buildTemplate('New Announcement', `
     <h2 style="margin:0 0 16px 0;color:#1f2937;font-size:20px;">${announcement.title}</h2>
     <div style="margin:12px 0 4px 0;">
       <span style="background-color:${announcement.priority === 'urgent' ? '#fef2f2' : announcement.priority === 'high' ? '#fff7ed' : '#eff6ff'};color:${announcement.priority === 'urgent' ? '#dc2626' : announcement.priority === 'high' ? '#ea580c' : '#2563eb'};padding:4px 10px;border-radius:12px;font-size:12px;font-weight:600;text-transform:uppercase;">${announcement.priority || 'medium'} priority</span>
       <span style="background-color:#f3f4f6;color:#6b7280;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:500;margin-left:6px;">${announcement.type}</span>
     </div>
+    ${imageHtml}
     <div style="margin:16px 0;padding:16px;background-color:#f9fafb;border-radius:6px;border-left:4px solid #3b82f6;">
       <p style="margin:0;font-size:15px;color:#374151;line-height:1.7;white-space:pre-wrap;">${announcement.content}</p>
     </div>
