@@ -80,9 +80,11 @@ const announcementSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     readAt: { type: Date, default: Date.now }
   }],
-  emailSentCount: {
-    type: Number,
-    default: 0
+  emailStats: {
+    total: { type: Number, default: 0 },
+    sent: { type: Number, default: 0 },
+    failed: { type: Number, default: 0 },
+    skipped: { type: Number, default: 0 }
   },
   attachments: [{
     fileName: { type: String, trim: true },

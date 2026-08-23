@@ -63,8 +63,8 @@ exports.createAnnouncement = async (req, res, next) => {
         const students = await getEmailRecipients();
         if (students.length > 0) {
           const result = await sendAnnouncementEmail(students, announcement);
-          if (result?.total) {
-            await Announcement.findByIdAndUpdate(announcement._id, { $inc: { emailSentCount: result.total } });
+          if (result) {
+            await Announcement.findByIdAndUpdate(announcement._id, { $set: { emailStats: { total: result.total, sent: result.sent, failed: result.failed, skipped: result.skipped } } });
           }
         }
       } catch (e) { console.error('[EMAIL] sendAnnouncementEmail:', e.message); }
@@ -87,8 +87,8 @@ exports.updateAnnouncement = async (req, res, next) => {
         console.log('[DEBUG UPDATE] recipients:', students.length);
         if (students.length > 0) {
           const result = await sendAnnouncementEmail(students, announcement);
-          if (result?.total) {
-            await Announcement.findByIdAndUpdate(announcement._id, { $inc: { emailSentCount: result.total } });
+          if (result) {
+            await Announcement.findByIdAndUpdate(announcement._id, { $set: { emailStats: { total: result.total, sent: result.sent, failed: result.failed, skipped: result.skipped } } });
           }
         }
       } catch (e) { console.error('[EMAIL] sendAnnouncementEmail:', e.message); }
