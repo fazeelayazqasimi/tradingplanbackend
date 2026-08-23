@@ -133,7 +133,7 @@ const getEmailRecipients = async () => {
  * provider rate limit is respected. One failed recipient never stops the rest.
  * Returns/logs: total, sent, failed, skipped.
  */
-const sendBulkEmails = async ({ users, subject, html, batchSize = 50 }) => {
+const sendBulkEmails = async ({ users, subject, html, batchSize = 10 }) => {
   const list = Array.isArray(users) ? users : [users];
   let sent = 0;
   let failed = 0;
@@ -162,6 +162,9 @@ const sendBulkEmails = async ({ users, subject, html, batchSize = 50 }) => {
         logEmail('error', `[BROADCAST] Failed → ${batch[idx] && batch[idx].email}: ${(r.reason && r.reason.message) || 'unknown error'}`);
       }
     });
+    if (i + batchSize < list.length) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
   }
 
   const summary = { total: list.length, sent, failed, skipped };
