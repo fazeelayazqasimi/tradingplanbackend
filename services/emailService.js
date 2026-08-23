@@ -139,6 +139,32 @@ const sendBulkEmails = async ({ users, subject, html, batchSize = 10 }) => {
   let failed = 0;
   let skipped = 0;
 
+  const isRateLimitError = (error) => {
+    if (!error) return false;
+    const msg = String(error).toLowerCase();
+    return msg.includes('too many requests') || 
+           msg.includes('rate limit') || 
+           msg.includes('429') ||
+           msg.includes('quota exceeded');
+  };
+
+  const sendWithRetry = async (email, maxRetries = 3) => {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const result = await sendEmail({ to: email, subject, html });
+      if (result.success) {
+        return { success: true, email };
+      }
+      if (isRateLimitError(result.error) && attempt < maxRetries) {
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000); // 1s, 2s, 4s max 10s
+        logEmail('warn', `[BROADCAST] Rate limited for ${email}, retrying in ${delay}ms (attempt ${attempt}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      return { success: false, email, error: result.error };
+    }
+    return { success: false, email, error: 'Max retries exceeded' };
+  };
+
   for (let i = 0; i < list.length; i += batchSize) {
     const batch = list.slice(i, i + batchSize);
     const results = await Promise.allSettled(
@@ -148,7 +174,7 @@ const sendBulkEmails = async ({ users, subject, html, batchSize = 10 }) => {
           skipped += 1;
           return;
         }
-        const result = await sendEmail({ to: email, subject, html });
+        const result = await sendWithRetry(email);
         if (result.success) sent += 1;
         else {
           failed += 1;
