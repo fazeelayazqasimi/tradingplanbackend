@@ -61,7 +61,12 @@ exports.createAnnouncement = async (req, res, next) => {
     if (announcement.isPublished) {
       try {
         const students = await getEmailRecipients();
-        if (students.length > 0) await sendAnnouncementEmail(students, announcement);
+        if (students.length > 0) {
+          const result = await sendAnnouncementEmail(students, announcement);
+          if (result?.total) {
+            await Announcement.findByIdAndUpdate(announcement._id, { $inc: { emailSentCount: result.total } });
+          }
+        }
       } catch (e) { console.error('[EMAIL] sendAnnouncementEmail:', e.message); }
     }
     sendSuccess(res, announcement, 'Created', 201);
@@ -80,7 +85,12 @@ exports.updateAnnouncement = async (req, res, next) => {
       try {
         const students = await getEmailRecipients();
         console.log('[DEBUG UPDATE] recipients:', students.length);
-        if (students.length > 0) await sendAnnouncementEmail(students, announcement);
+        if (students.length > 0) {
+          const result = await sendAnnouncementEmail(students, announcement);
+          if (result?.total) {
+            await Announcement.findByIdAndUpdate(announcement._id, { $inc: { emailSentCount: result.total } });
+          }
+        }
       } catch (e) { console.error('[EMAIL] sendAnnouncementEmail:', e.message); }
     }
     sendSuccess(res, announcement, 'Updated');
