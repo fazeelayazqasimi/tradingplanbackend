@@ -212,13 +212,12 @@ exports.getStudentDashboard = async (req, res, next) => {
     const Course = require('../models/Course');
     const CopyTrading = require('../models/CopyTrading');
     const BusinessProfile = require('../models/BusinessProfile');
+    const Signal = require('../models/Signal');
 
     const [
       enrolled,
       signals,
-      mainWallet,
-      fundingWallet,
-      walletStats,
+      wallets,
       rank,
       referralStats,
       referralCode,
@@ -231,15 +230,12 @@ exports.getStudentDashboard = async (req, res, next) => {
       freeCourses,
       copyStats,
       businessProfiles,
+      commissionAgg,
+      freeRegAgg,
     ] = await Promise.all([
       safe(UserProgress.find({ userId }).populate({ path: 'courseId', select: 'title slug thumbnail level category totalLessons' }).limit(3).lean(), []),
       safe(Signal.find({ isPublished: true }).sort({ createdAt: -1 }).limit(5).select('title symbol side isPublished createdAt').lean(), []),
-      safe(Wallet.findOne({ userId, type: 'main' }).select('availableBalance pendingBalance').lean(), null),
-      safe(Wallet.findOne({ userId, type: 'funding' }).select('availableBalance').lean(), null),
-      safe(Wallet.aggregate([
-        { $match: { userId } },
-        { $group: { _id: null, available: { $sum: '$availableBalance' }, pending: { $sum: '$pendingBalance' } } },
-      ]), []),
+      safe(Wallet.find({ userId }).lean(), []),
       safe(UserRank.findOne({ userId }).populate('currentRankId', 'name').lean(), null),
       safe(Referral.aggregate([
         { $match: { referrerId: userId } },
@@ -258,20 +254,30 @@ exports.getStudentDashboard = async (req, res, next) => {
         { $group: { _id: null, totalTrades: { $sum: 1 }, wins: { $sum: { $cond: [{ $eq: ['$result', 'win'] }, 1, 0] } }, totalProfit: { $sum: '$profit' }, openTrades: { $sum: { $cond: [{ $eq: ['$status', 'open'] }, 1, 0 ] } } } },
       ]), []),
       safe(BusinessProfile.find({ isPublished: true }).select('title fileUrl fileName').lean(), []),
+      safe(Referral.aggregate([
+        { $match: { referrerId: userId, status: { $in: ['converted', 'paid'] } } },
+        { $group: { _id: null, total: { $sum: '$commissionAmount' } } },
+      ]), []),
+      safe(WalletTransaction.aggregate([
+        { $match: { userId, category: 'registration' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ]), []),
     ]);
 
-    const wallet = mainWallet || { availableBalance: 0, pendingBalance: 0 };
-    const funding = fundingWallet || { availableBalance: 0 };
-    const ws = walletStats[0] || { available: 0, pending: 0 };
+    const walletList = wallets || [];
+    const mainWallet = walletList.find(w => w.type === 'main') || { availableBalance: 0, pendingBalance: 0 };
+    const fundingWallet = walletList.find(w => w.type === 'funding') || { availableBalance: 0 };
+    const ws = { available: mainWallet.availableBalance || 0, pending: mainWallet.pendingBalance || 0 };
     const r = referralStats[0] || { totalReferrals: 0, directReferrals: 0, indirectReferrals: 0, freeMembers: 0, activeReferrals: 0, totalCommission: 0 };
+    r.freeRegistrationEarnings = freeRegAgg[0]?.total || 0;
     const cp = copyStats[0] || { totalTrades: 0, wins: 0, totalProfit: 0, openTrades: 0 };
 
     sendSuccess(res, {
       isPremium,
       enrolled: enrolled?.map(e => e.courseId).filter(Boolean) || [],
       signals,
-      walletData: wallet,
-      fundingWalletData: funding,
+      walletData: mainWallet,
+      fundingWalletData: fundingWallet,
       walletStats: ws,
       rank,
       nextRank: rank?.currentRankId ? null : null,
@@ -299,7 +305,7 @@ exports.getStudentDashboard = async (req, res, next) => {
       walletStats: { available: 0, pending: 0 },
       rank: null,
       nextRank: null,
-      referralStats: { totalReferrals: 0, directReferrals: 0, indirectReferrals: 0, freeMembers: 0, activeReferrals: 0, totalCommission: 0 },
+      referralStats: { totalReferrals: 0, directReferrals: 0, indirectReferrals: 0, freeMembers: 0, activeReferrals: 0, totalCommission: 0, freeRegistrationEarnings: 0 },
       referralCode: '',
       marketOverview: {},
       openSignalsCount: 0,
