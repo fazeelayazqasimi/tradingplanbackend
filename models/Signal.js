@@ -112,6 +112,12 @@ const signalSchema = new mongoose.Schema({
     },
     default: 'open'
   },
+  closeReason: {
+    type: String,
+    trim: true,
+    maxlength: [2000, 'Close reason cannot exceed 2000 characters'],
+    default: ''
+  },
   profit: {
     type: Number,
     default: 0

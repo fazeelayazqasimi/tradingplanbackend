@@ -1,5 +1,6 @@
 const Wallet = require('../models/Wallet');
 const WalletTransaction = require('../models/WalletTransaction');
+const Referral = require('../models/Referral');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions } = require('../helpers/pagination');
 
@@ -53,7 +54,6 @@ exports.getWalletStats = async (req, res, next) => {
   try {
     const wallets = await Wallet.find({ userId: req.user._id });
     if (!wallets || wallets.length === 0) return sendSuccess(res, { totalEarned: 0, totalWithdrawn: 0, available: 0, pending: 0, byCategory: {}, expenses: {} });
-    const totalEarnedAll = wallets.reduce((sum, w) => sum + (w.totalEarned || 0), 0);
     const totalWithdrawnAll = wallets.reduce((sum, w) => sum + (w.totalWithdrawn || 0), 0);
     const availableAll = wallets.reduce((sum, w) => sum + (w.availableBalance || 0), 0);
     const pendingAll = wallets.reduce((sum, w) => sum + (w.pendingBalance || 0), 0);
@@ -65,11 +65,18 @@ exports.getWalletStats = async (req, res, next) => {
       { $match: { userId: req.user._id, type: 'debit' } },
       { $group: { _id: '$category', total: { $sum: '$amount' } } },
     ]);
-    const depositTotal = await WalletTransaction.aggregate([
-      { $match: { userId: req.user._id, type: 'credit', category: 'deposit' } },
+    // "Total Earned" is defined consistently with the student Dashboard:
+    // referral commission received (status converted/paid) + free registration
+    // earnings. Computed via aggregation (no double counting).
+    const commissionAgg = await Referral.aggregate([
+      { $match: { referrerId: req.user._id, status: { $in: ['converted', 'paid'] } } },
+      { $group: { _id: null, total: { $sum: '$commissionAmount' } } },
+    ]);
+    const freeRegAgg = await WalletTransaction.aggregate([
+      { $match: { userId: req.user._id, category: 'registration' } },
       { $group: { _id: null, total: { $sum: '$amount' } } },
     ]);
-    const totalEarningsExcludingDeposits = totalEarnedAll - (depositTotal[0]?.total || 0);
+    const totalEarned = (commissionAgg[0]?.total || 0) + (freeRegAgg[0]?.total || 0);
     const expensesByCategory = expenses.reduce((a, c) => { a[c._id] = c.total; return a; }, {});
     const cashWithdrawals = expensesByCategory['withdrawal'] || 0;
     const rewardCreditsFunding = await WalletTransaction.aggregate([
@@ -82,7 +89,7 @@ exports.getWalletStats = async (req, res, next) => {
     const rewardCreditsUsed = rewardCreditsFunding[0]?.total || 0;
     const totalRedeemed = (expensesByCategory['subscription'] || 0) + (expensesByCategory['purchase'] || 0);
     sendSuccess(res, {
-      totalEarned: Math.max(0, totalEarningsExcludingDeposits),
+      totalEarned,
       totalWithdrawn: cashWithdrawals,
       rewardCreditsUsed,
       totalRedeemed,

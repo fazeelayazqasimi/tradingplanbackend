@@ -16,7 +16,7 @@ const businessProfileSchema = new mongoose.Schema({
   fileUrl: {
     type: String,
     trim: true,
-    required: [true, 'PDF file is required']
+    default: ''
   },
   fileName: {
     type: String,
@@ -24,6 +24,20 @@ const businessProfileSchema = new mongoose.Schema({
     default: ''
   },
   fileSize: {
+    type: Number,
+    default: 0
+  },
+  videoUrl: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  videoName: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  videoSize: {
     type: Number,
     default: 0
   },

@@ -4,7 +4,7 @@ const Notification = require('../models/Notification');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions } = require('../helpers/pagination');
 const { sendSignalPublishedEmail, getEmailRecipients } = require('../services/emailService');
-const { resolveSignal, checkOpenSignals, closeSignal: closeSignalService } = require('../services/signalResultService');
+const { resolveSignal, checkOpenSignals, closeSignal: closeSignalService, markTpHit: markTpHitService } = require('../services/signalResultService');
 const { getLiveQuote } = require('../services/liveRatesService');
 
 const normalizeMultiLevels = (body) => {
@@ -150,9 +150,25 @@ exports.closeSignal = async (req, res, next) => {
     if (!signal) return sendError(res, 'Signal not found', 404);
 
     const price = req.body.price != null ? Number(req.body.price) : await getLiveQuote(signal.symbol);
-    const result = await closeSignalService(req.params.id, price);
+    const result = await closeSignalService(req.params.id, price, { closeReason: req.body.closeReason });
     if (!result.closed) return sendError(res, result.reason || 'Unable to close signal', 400);
     sendSuccess(res, result.signal, 'Signal closed. Email sent to all students');
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.markTpHit = async (req, res, next) => {
+  try {
+    const level = req.body.level != null ? parseInt(req.body.level, 10) : null;
+    if (level == null || !Number.isInteger(level) || level < 1) {
+      return sendError(res, 'A valid level (>= 1) is required. e.g. { "level": 4 }', 400);
+    }
+    const price = req.body.price != null ? Number(req.body.price) : null;
+    const result = await markTpHitService(req.params.id, level, price);
+    if (!result.resolved) return sendError(res, result.reason || 'Unable to mark TP hit', 400);
+    const msg = `TP ${result.level} hit! TPs 1–${result.level} marked and one email sent to all students`;
+    sendSuccess(res, result.signal, msg);
   } catch (error) {
     next(error);
   }

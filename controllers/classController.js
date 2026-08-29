@@ -4,6 +4,16 @@ const { sendSuccess, sendError, sendPaginated } = require('../helpers/response')
 const { getPaginationOptions } = require('../helpers/pagination');
 const { sendClassPublishedEmail } = require('../services/emailService');
 
+const ALLOWED_SLOTS = ['Morning', 'Evening', 'Weekend'];
+const ALLOWED_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+const resolveVideoUrl = (file, folder) => {
+  if (!file) return null;
+  return (file.path && /^https?:\/\//.test(file.path))
+    ? file.path
+    : `/uploads/${folder}/${file.filename}`;
+};
+
 exports.getClasses = async (req, res, next) => {
   try {
     const { page, limit, sort } = getPaginationOptions(req.query);
@@ -49,9 +59,7 @@ exports.createClass = async (req, res, next) => {
     }
     if (type === 'physical') {
       classData.meetLink = null;
-      if (req.file) {
-        classData.videoUrl = `/uploads/videos/${req.file.filename}`;
-      }
+      classData.videoUrl = resolveVideoUrl(req.file, 'videos');
     }
     const cls = await Class.create(classData);
     try {
@@ -91,10 +99,49 @@ exports.updateClass = async (req, res, next) => {
     if (instructor !== undefined) cls.instructor = instructor;
     if (isActive !== undefined) cls.isActive = isActive;
     if (req.file && cls.type === 'physical') {
-      cls.videoUrl = `/uploads/videos/${req.file.filename}`;
+      cls.videoUrl = resolveVideoUrl(req.file, 'videos');
     }
     await cls.save();
     sendSuccess(res, cls, 'Class updated');
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.enrollInClass = async (req, res, next) => {
+  try {
+    const cls = await Class.findById(req.params.id);
+    if (!cls) return sendError(res, 'Class not found', 404);
+    if (!cls.isActive) return sendError(res, 'Class is not open for enrollment', 400);
+
+    const user = req.user;
+    const studentName = [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
+    const studentEmail = user.email || '';
+
+    let preferredSlot = req.body.preferredSlot || 'Morning';
+    if (!ALLOWED_SLOTS.includes(preferredSlot)) preferredSlot = 'Morning';
+    let preferredDays = Array.isArray(req.body.preferredDays) ? req.body.preferredDays : [];
+    preferredDays = preferredDays.filter(d => ALLOWED_DAYS.includes(d));
+
+    const existing = cls.enrollments.find(e => e.userId && e.userId.toString() === user._id.toString());
+    if (existing) {
+      existing.studentName = studentName;
+      existing.studentEmail = studentEmail;
+      existing.preferredSlot = preferredSlot;
+      existing.preferredDays = preferredDays;
+      existing.createdAt = Date.now();
+    } else {
+      cls.enrollments.push({
+        userId: user._id,
+        studentName,
+        studentEmail,
+        preferredSlot,
+        preferredDays,
+      });
+    }
+
+    await cls.save();
+    sendSuccess(res, cls, existing ? 'Enrollment updated' : 'Enrolled successfully', 201);
   } catch (error) {
     next(error);
   }

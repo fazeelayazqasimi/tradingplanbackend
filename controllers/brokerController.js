@@ -2,6 +2,24 @@ const TradingBroker = require('../models/TradingBroker');
 const TradingAccount = require('../models/TradingAccount');
 const { sendSuccess, sendError } = require('../helpers/response');
 
+const getFileUrl = (file) => {
+  if (!file) return null;
+  if (file.secure_url) return file.secure_url;
+  if (file.path && /^https?:\/\//.test(file.path)) return file.path;
+  return `/uploads/media/${file.filename}`;
+};
+
+exports.uploadBrokerLogo = async (req, res, next) => {
+  try {
+    const broker = await TradingBroker.findById(req.params.id);
+    if (!broker) return sendError(res, 'Broker not found', 404);
+    if (!req.file) return sendError(res, 'No logo file uploaded', 400);
+    broker.logo = getFileUrl(req.file);
+    await broker.save();
+    sendSuccess(res, broker, 'Broker logo uploaded');
+  } catch (error) { next(error); }
+};
+
 exports.getBrokers = async (req, res, next) => {
   try {
     const brokers = await TradingBroker.find({ isActive: true }).sort({ order: 1 });

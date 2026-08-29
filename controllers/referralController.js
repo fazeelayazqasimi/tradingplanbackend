@@ -38,40 +38,100 @@ async function processPendingForUser(userId) {
  * (1 = direct, 2+ = indirect). No depth cap, so full downline is always counted.
  */
 async function getDownlineMembers(userId) {
-  const members = [];
-  const visited = new Set();
-  const directRefs = await Referral.find({ referrerId: userId, level: 1 })
-    .populate('referredUserId', USER_SELECT)
-    .lean();
-  let frontier = [];
-  for (const ref of directRefs) {
-    if (!ref.referredUserId) continue;
-    const id = ref.referredUserId._id.toString();
-    if (!visited.has(id)) {
-      visited.add(id);
-      members.push({ ref, depth: 1 });
-      frontier.push(id);
-    }
-  }
-  let depth = 1;
-  while (frontier.length > 0) {
-    depth++;
-    const children = await Referral.find({ referrerId: { $in: frontier }, level: 1 })
-      .populate('referredUserId', USER_SELECT)
-      .lean();
-    const next = [];
-    for (const ref of children) {
-      if (!ref.referredUserId) continue;
-      const id = ref.referredUserId._id.toString();
-      if (!visited.has(id)) {
-        visited.add(id);
-        members.push({ ref, depth });
-        next.push(id);
-      }
-    }
-    frontier = next;
-  }
-  return members;
+  // Single aggregation using $graphLookup to walk the entire downline in ONE
+  // query (eliminates the previous N+1 BFS). Each referral is stored with
+  // level:1 relative to its immediate referrer, so following only level-1
+  // edges reproduces the full tree and preserves each node's depth.
+  const USER_PROJECT = {
+    firstName: 1,
+    lastName: 1,
+    email: 1,
+    createdAt: 1,
+    isApproved: 1,
+    subscriptionStatus: 1,
+  };
+
+  const docs = await Referral.aggregate([
+    {
+      $match: {
+        referrerId: userId,
+        level: 1,
+        referredUserId: { $exists: true, $ne: null },
+      },
+    },
+    {
+      $graphLookup: {
+        from: 'referrals',
+        startWith: '$referredUserId',
+        connectFromField: 'referredUserId',
+        connectToField: 'referrerId',
+        as: 'descendants',
+        maxDepth: 50,
+        depthField: '_gdepth',
+      },
+    },
+    {
+      $project: {
+        direct: {
+          _id: '$_id',
+          referredUserId: '$referredUserId',
+          status: '$status',
+          commissionAmount: '$commissionAmount',
+          conversionType: '$conversionType',
+          conversionAmount: '$conversionAmount',
+          createdAt: '$createdAt',
+          level: '$level',
+          depth: 1,
+        },
+        descendants: {
+          $map: {
+            input: {
+              $filter: {
+                input: '$descendants',
+                as: 'd',
+                cond: { $eq: ['$$d.level', 1] },
+              },
+            },
+            as: 'd',
+            in: {
+              _id: '$$d._id',
+              referredUserId: '$$d.referredUserId',
+              status: '$$d.status',
+              commissionAmount: '$$d.commissionAmount',
+              conversionType: '$$d.conversionType',
+              conversionAmount: '$$d.conversionAmount',
+              createdAt: '$$d.createdAt',
+              level: '$$d.level',
+              depth: { $add: ['$$d._gdepth', 2] },
+            },
+          },
+        },
+      },
+    },
+    { $project: { items: { $concatArrays: ['$direct', '$descendants'] } } },
+    { $unwind: '$items' },
+    { $replaceRoot: { newRoot: '$items' } },
+    {
+      $lookup: {
+        from: 'users',
+        let: { uid: '$referredUserId' },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$_id', '$$uid'] } } },
+          { $project: USER_PROJECT },
+        ],
+        as: 'user',
+      },
+    },
+    { $match: { $expr: { $gt: [{ $size: '$user' }, 0] } } },
+    { $addFields: { referredUserId: { $arrayElemAt: ['$user', 0] } } },
+    { $project: { user: 0 } },
+    // Dedupe by user (mirrors the original BFS visited-set): the same downline
+    // member can have multiple referral records across different upline referrers.
+    { $group: { _id: '$referredUserId._id', doc: { $first: '$$ROOT' } } },
+    { $replaceRoot: { newRoot: '$doc' } },
+  ]);
+
+  return docs.map((d) => ({ ref: d, depth: d.depth }));
 }
 
 /**
@@ -161,7 +221,7 @@ exports.getReferralStats = async (req, res, next) => {
       totalReferrals: totalDownline,
       totalTeam: totalDownline,
       totalDownline,
-      totalEarnings: earnings[0]?.total || 0,
+      totalEarnings: (earnings[0]?.total || 0) + (freeRegEarnings[0]?.total || 0),
       pendingCommission: pendingCommissions[0]?.total || 0,
       pendingReferrals: pendingCount,
       activeReferrals: activeCount,

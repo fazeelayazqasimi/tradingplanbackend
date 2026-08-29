@@ -42,6 +42,37 @@ const classSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
+  enrollments: [
+    {
+      userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+      studentName: {
+        type: String,
+        trim: true,
+        default: '',
+      },
+      studentEmail: {
+        type: String,
+        trim: true,
+        default: '',
+      },
+      preferredSlot: {
+        type: String,
+        enum: ['Morning', 'Evening', 'Weekend'],
+        default: 'Morning',
+      },
+      preferredDays: {
+        type: [String],
+        default: [],
+      },
+      createdAt: {
+        type: Date,
+        default: Date.now,
+      },
+    },
+  ],
 }, {
   timestamps: true,
 });

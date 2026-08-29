@@ -163,12 +163,77 @@ const notifySignalClosed = async (signal, closePrice) => {
 };
 
 /**
+ * Mark a take-profit level (TPn) as hit and, per the client spec, ALSO mark
+ * every earlier TP (TP1..TPn-1) as hit so they all turn green on the user's
+ * dashboard. Sends exactly ONE broadcast email to all students notifying them
+ * which TPs were hit. The signal only closes once every TP is hit (or SL hit).
+ */
+const markTpHit = async (signalId, level, price, options = {}) => {
+  const { sendEmail = true } = options;
+  const signal = await Signal.findById(signalId);
+  if (!signal) return { resolved: false, reason: 'Signal not found' };
+  if (signal.status === 'closed' || signal.result) {
+    return { resolved: false, reason: 'Signal already resolved', signal };
+  }
+
+  const hasMultiTp = Array.isArray(signal.takeProfits) && signal.takeProfits.length > 0;
+
+  // Single-TP signals: fall back to the standard single resolution.
+  if (!hasMultiTp) {
+    return resolveSignal(signalId, 'tp', price, { sendEmail, tpIndex: 0 });
+  }
+
+  if (!Number.isInteger(level) || level < 1) {
+    return { resolved: false, reason: 'A valid level (>= 1) is required' };
+  }
+
+  const max = Math.min(level, signal.takeProfits.length);
+  let changed = false;
+  for (let i = 0; i < max; i += 1) {
+    if (!signal.takeProfits[i].hit) {
+      signal.takeProfits[i].hit = true;
+      signal.takeProfits[i].hitAt = new Date();
+      changed = true;
+    }
+  }
+
+  if (!changed) {
+    return { resolved: false, reason: `TPs up to level ${level} already marked hit`, signal };
+  }
+
+  const tpPrice = signal.takeProfits[max - 1].price;
+  const profit = computeTpResult(signal, tpPrice);
+  const pipSize = getPipSize(signal.symbol);
+  signal.profit = Number(profit.toFixed(2));
+  signal.pips = Number((profit / pipSize).toFixed(1));
+  signal.currentPrice = price != null ? Number(price) : tpPrice;
+  signal.lastCheckedPrice = price != null ? Number(price) : tpPrice;
+  signal.lastCheckedAt = new Date();
+  signal.tpHitAt = new Date();
+
+  const allHit = signal.takeProfits.every((t) => t.hit);
+  if (allHit) {
+    signal.status = 'closed';
+    signal.result = 'tp';
+    signal.closeTime = new Date();
+  }
+
+  await signal.save();
+
+  if (sendEmail) {
+    notifyStudents(signal, 'tp', max - 1);
+  }
+
+  return { resolved: true, outcome: 'tp', tpIndex: max - 1, tpLabel: `TP ${max}`, level, signal };
+};
+
+/**
  * Manually close an open signal (admin action). Idempotent — a signal
- * already closed is left untouched. Emails all students and creates
- * in-app notifications.
+ * already closed is left untouched. Stores the admin's closeReason and emails
+ * all students explaining why the trade was closed.
  */
 const closeSignal = async (signalId, price, options = {}) => {
-  const { sendEmail = true } = options;
+  const { sendEmail = true, closeReason = '' } = options;
   const signal = await Signal.findById(signalId);
   if (!signal) return { closed: false, reason: 'Signal not found' };
   if (signal.status === 'closed') return { closed: false, reason: 'Signal already closed', signal };
@@ -185,6 +250,7 @@ const closeSignal = async (signalId, price, options = {}) => {
   signal.lastCheckedAt = new Date();
   signal.profit = Number(profit.toFixed(2));
   signal.pips = Number((profit / pipSize).toFixed(1));
+  signal.closeReason = closeReason ? String(closeReason).trim() : signal.closeReason || '';
   await signal.save();
 
   if (sendEmail) {
@@ -264,4 +330,4 @@ const checkOpenSignals = async () => {
   }
 };
 
-module.exports = { resolveSignal, checkOpenSignals, closeSignal };
+module.exports = { resolveSignal, checkOpenSignals, closeSignal, markTpHit };

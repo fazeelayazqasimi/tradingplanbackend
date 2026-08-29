@@ -1,6 +1,15 @@
 const Chat = require('../models/Chat');
 const { sendSuccess, sendError } = require('../helpers/response');
 
+const buildAttachment = (file) => {
+  if (!file) return null;
+  const url = file.path || `/uploads/media/${file.filename}`;
+  let type = 'document';
+  if (file.mimetype.startsWith('image/')) type = 'image';
+  else if (file.mimetype.startsWith('video/')) type = 'video';
+  return { url, type, name: file.originalname };
+};
+
 const canAccess = (chat, user) => {
   if (user.role === 'admin') return true;
   return chat && String(chat.userId) === String(user._id);
@@ -41,14 +50,21 @@ exports.listChats = async (req, res, next) => {
 
 exports.sendMessage = async (req, res, next) => {
   try {
-    const { message } = req.body;
-    if (!message || !message.trim()) return sendError(res, 'Message is required', 400);
+    const message = (req.body.message || '').toString().trim();
+    const attachment = buildAttachment(req.file);
+
+    if (!message && !attachment) {
+      return sendError(res, 'Message or attachment is required', 400);
+    }
 
     const chat = await Chat.findById(req.params.id);
     if (!chat) return sendError(res, 'Chat not found', 404);
     if (!canAccess(chat, req.user)) return sendError(res, 'Not authorized to access this chat', 403);
 
-    chat.messages.push({ sender: req.user._id, message: message.trim() });
+    const newMessage = { sender: req.user._id, message };
+    if (attachment) newMessage.attachments = [attachment];
+
+    chat.messages.push(newMessage);
     chat.lastMessageAt = new Date();
     await chat.save();
 

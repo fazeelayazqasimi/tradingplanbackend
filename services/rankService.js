@@ -104,21 +104,17 @@ const updateRankStats = async (userRankDoc, userId) => {
   try {
     const allRefs = await Referral.find({ referrerId: new mongoose.Types.ObjectId(userId), status: { $in: ACTIVE_REFERRAL_STATUSES } }).lean();
     const directCount = allRefs.filter(r => r.level === 1).length;
+    const totalReferrals = allRefs.length;
 
-    const directReferralUserIds = allRefs.filter(r => r.level === 1).map(r => r.referredUserId.toString());
-    const indirectSet = new Set();
-    for (const directUserId of directReferralUserIds) {
-      const childRefs = await Referral.find({ referrerId: new mongoose.Types.ObjectId(directUserId) }).lean();
-      for (const childRef of childRefs) {
-        indirectSet.add(childRef.referredUserId.toString());
-      }
-    }
+    // Indirect = every active downline member that is NOT a direct referral.
+    // Counting the full downline (all levels) rather than only grandchildren.
+    const indirectCount = totalReferrals - directCount;
 
     const totalRevenue = allRefs.reduce((sum, r) => sum + (r.conversionAmount || 0), 0);
     const totalCommission = allRefs.reduce((sum, r) => sum + (r.commissionAmount || 0), 0);
 
-    userRankDoc.totalReferrals = allRefs.length;
-    userRankDoc.indirectReferrals = indirectSet.size;
+    userRankDoc.totalReferrals = totalReferrals;
+    userRankDoc.indirectReferrals = indirectCount;
     userRankDoc.totalRevenue = totalRevenue;
     userRankDoc.totalCommission = totalCommission;
   } catch (e) {

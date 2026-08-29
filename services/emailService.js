@@ -576,6 +576,15 @@ const sendSignalTPHitEmail = async (users, signal, tpIndex = null) => {
     ? signal.takeProfits[tpIndex]?.price
     : signal.takeProfit;
   const headline = tpLabel ? `${tpLabel} Hit` : 'Target Achieved';
+
+  const tpBreakdown = hasMultiTp
+    ? signal.takeProfits.map((tp, i) => `
+        <tr>
+          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>TP ${i + 1}</strong></td>
+          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;">${tp.price}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:${tp.hit ? '#16a34a' : '#9ca3af'};font-weight:${tp.hit ? '700' : '400'};">${tp.hit ? 'HIT ✓' : 'Pending'}</td>
+        </tr>`).join('')
+    : '';
   const html = buildTemplate(`${headline} - Signal Target Hit`, `
     <h2 style="margin:0 0 16px 0;color:#1f2937;font-size:20px;">${tpLabel ? `${tpLabel} Achieved!` : 'Target Achieved!'}</h2>
     <p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.6;">
@@ -594,6 +603,12 @@ const sendSignalTPHitEmail = async (users, signal, tpIndex = null) => {
         <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Entry Price</strong></td>
         <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;">${signal.openPrice}</td>
       </tr>
+      ${tpBreakdown ? `
+      <tr>
+        <td colspan="3" style="padding:4px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:13px;font-weight:600;color:#374151;">Take-Profit Targets</td>
+      </tr>
+      ${tpBreakdown}
+      ` : ''}
       <tr>
         <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>${tpLabel ? `${tpLabel} Hit` : 'Take Profit Hit'}</strong></td>
         <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#16a34a;">${hitPrice}</td>
@@ -975,11 +990,18 @@ const sendAdminActivityEmail = async (student, activity) => {  const name = awai
 const sendSignalClosedEmail = async (users, signal, closePrice) => {
   const name = await getBrandName();
   const price = closePrice != null ? Number(closePrice) : signal.currentPrice;
+  const closeReason = (signal.closeReason || '').toString().trim();
   const html = buildTemplate('Signal Closed', `
     <h2 style="margin:0 0 16px 0;color:#1f2937;font-size:20px;">Signal Closed</h2>
     <p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.6;">
       The ${signal.symbol} ${signal.action} signal has been closed${price != null ? ` at ${price}` : ''}. Review the outcome below and manage your positions accordingly.
     </p>
+    ${closeReason ? `
+    <div style="background-color:#fff7ed;border:1px solid #fed7aa;border-radius:6px;padding:16px;margin:16px 0;">
+      <p style="margin:0 0 6px 0;font-size:13px;font-weight:600;color:#9a3412;text-transform:uppercase;letter-spacing:0.03em;">Why was this trade closed?</p>
+      <p style="margin:0;font-size:15px;color:#7c2d12;line-height:1.6;white-space:pre-wrap;">${closeReason}</p>
+    </div>
+    ` : ''}
     <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;margin:16px 0;">
       <tr>
         <td style="padding:8px 12px;background-color:#f9fafb;border-bottom:1px solid #e5e7eb;font-size:14px;color:#374151;"><strong>Symbol</strong></td>

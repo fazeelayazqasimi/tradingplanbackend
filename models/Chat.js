@@ -8,10 +8,19 @@ const chatMessageSchema = new mongoose.Schema({
   },
   message: {
     type: String,
-    required: [true, 'Message is required'],
     trim: true,
-    maxlength: [5000, 'Message cannot exceed 5000 characters']
+    maxlength: [5000, 'Message cannot exceed 5000 characters'],
+    default: ''
   },
+  attachments: [{
+    url: { type: String, required: true },
+    type: {
+      type: String,
+      enum: ['image', 'video', 'document'],
+      default: 'image'
+    },
+    name: { type: String }
+  }],
   isRead: {
     type: Boolean,
     default: false

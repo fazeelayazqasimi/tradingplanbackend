@@ -60,7 +60,7 @@ exports.getUser = async (req, res, next) => {
   }
 };
 
-const ALLOWED_UPDATE_FIELDS = ['firstName', 'lastName', 'phone', 'country', 'avatar', 'isActive', 'isEmailVerified', 'isApproved', 'address', 'dateOfBirth', 'bio'];
+const ALLOWED_UPDATE_FIELDS = ['firstName', 'lastName', 'email', 'phone', 'country', 'avatar', 'isActive', 'isEmailVerified', 'isApproved', 'address', 'dateOfBirth', 'bio'];
 
 exports.adminUpdateUser = async (req, res, next) => {
   try {
@@ -68,6 +68,15 @@ exports.adminUpdateUser = async (req, res, next) => {
     for (const field of ALLOWED_UPDATE_FIELDS) {
       if (req.body[field] !== undefined) updateData[field] = req.body[field];
     }
+
+    // Validate email uniqueness when an admin changes it (exclude the target user).
+    if (updateData.email) {
+      const normalizedEmail = updateData.email.toString().trim().toLowerCase();
+      const existing = await User.findOne({ email: normalizedEmail, _id: { $ne: req.params.id } });
+      if (existing) return sendError(res, 'Email is already in use by another account', 400);
+      updateData.email = normalizedEmail;
+    }
+
     const user = await User.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true }).select('-password');
     if (!user) return sendError(res, 'User not found', 404);
     if (req.body.isActive === false) {
@@ -175,4 +184,88 @@ exports.deleteUser = async (req, res, next) => {
     await Quiz.deleteMany({ 'attempts.userId': userId });
     sendSuccess(res, null, 'User and all associated records deleted successfully');
   } catch (error) { next(error); }
+};
+
+exports.getStudentDashboard = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    const isPremium = req.user.subscriptionStatus === 'active';
+
+    const [
+      enrolled,
+      signals,
+      mainWallet,
+      fundingWallet,
+      walletStats,
+      rank,
+      referralStats,
+      referralCode,
+      marketOverview,
+      openSignalsCount,
+      freeWebinars,
+      freeZoomSessions,
+      marketUpdates,
+      announcements,
+      freeCourses,
+      copyStats,
+      businessProfiles,
+    ] = await Promise.all([
+      UserProgress.find({ userId }).populate({ path: 'courseId', select: 'title slug thumbnail level category totalLessons' }).limit(3).lean(),
+      Signal.find({ isPublished: true }).sort({ createdAt: -1 }).limit(5).select('title symbol side isPublished createdAt').lean(),
+      Wallet.findOne({ userId, type: 'main' }).select('availableBalance pendingBalance').lean(),
+      Wallet.findOne({ userId, type: 'funding' }).select('availableBalance').lean(),
+      Wallet.aggregate([
+        { $match: { userId } },
+        { $group: { _id: null, available: { $sum: '$availableBalance' }, pending: { $sum: '$pendingBalance' } } },
+      ]),
+      UserRank.findOne({ userId }).populate('currentRankId', 'name').lean(),
+      Referral.aggregate([
+        { $match: { referrerId: userId } },
+        { $group: { _id: null, totalReferrals: { $sum: 1 }, directReferrals: { $sum: { $cond: [{ $eq: ['$level', 1] }, 1, 0] } }, indirectReferrals: { $sum: { $cond: [{ $eq: ['$level', 2] }, 1, 0] } }, freeMembers: { $sum: { $cond: [{ $eq: ['$level', 0] }, 1, 0] } }, activeReferrals: { $sum: { $cond: [{ $eq: ['$status', 'converted'] }, 1, 0] } }, totalCommission: { $sum: '$commissionAmount' } } },
+      ]),
+      User.findById(userId).select('referralCode').lean(),
+      require('./marketOverviewController').getMarketOverviewInternal(),
+      Signal.countDocuments({ isPublished: true, status: 'open' }),
+      require('../models/Webinar').find({ isFree: true, isPublished: true }).sort({ date: -1 }).limit(5).select('title date publishedAt summary description').lean(),
+      require('../models/ZoomSession').find({ category: 'free-zoom', isPublished: true }).sort({ date: -1 }).limit(5).select('title date publishedAt summary description').lean(),
+      require('../models/MarketUpdate').find({ isPublished: true }).sort({ createdAt: -1 }).limit(5).select('title createdAt summary description').lean(),
+      require('../models/Announcement').find({ isPublished: true }).sort({ createdAt: -1 }).limit(5).select('title createdAt content').lean(),
+      Course.find({ isFree: true }).sort({ order: -1 }).limit(5).select('title slug thumbnail level category totalLessons').lean(),
+      require('../models/CopyTrading').aggregate([
+        { $match: { userId } },
+        { $group: { _id: null, totalTrades: { $sum: 1 }, wins: { $sum: { $cond: [{ $eq: ['$result', 'win'] }, 1, 0] } }, totalProfit: { $sum: '$profit' }, openTrades: { $sum: { $cond: [{ $eq: ['$status', 'open'] }, 1, 0 ] } } } },
+      ]),
+      require('../models/BusinessProfile').find({ isPublished: true }).select('title fileUrl fileName').lean(),
+    ]);
+
+    const wallet = mainWallet || { availableBalance: 0, pendingBalance: 0 };
+    const funding = fundingWallet || { availableBalance: 0 };
+    const ws = walletStats[0] || { available: 0, pending: 0 };
+    const r = referralStats[0] || { totalReferrals: 0, directReferrals: 0, indirectReferrals: 0, freeMembers: 0, activeReferrals: 0, totalCommission: 0 };
+    const cp = copyStats[0] || { totalTrades: 0, wins: 0, totalProfit: 0, openTrades: 0 };
+
+    sendSuccess(res, {
+      isPremium,
+      enrolled: enrolled?.map(e => e.courseId).filter(Boolean) || [],
+      signals,
+      walletData: wallet,
+      fundingWalletData: funding,
+      walletStats: ws,
+      rank,
+      nextRank: rank?.currentRankId ? null : null,
+      referralStats: r,
+      referralCode: referralCode?.referralCode || '',
+      marketOverview,
+      openSignalsCount,
+      freeWebinars,
+      freeZoomSessions,
+      marketUpdates,
+      announcements,
+      freeCourses,
+      copyStats: cp,
+      businessProfiles,
+    });
+  } catch (error) {
+    next(error);
+  }
 };

@@ -504,9 +504,33 @@ exports.activateByUpline = async (req, res, next) => {
   }
 };
 
+/**
+ * Closes any pending level-1 referral for `userId` without paying commission.
+ * This guarantees the deferred `processPendingForUser()` path in the referral
+ * controller can never pay out commission later for an admin-activated account.
+ */
+const closePendingReferralNoCommission = async (userId) => {
+  const amount = await getActivationAmount();
+  await Referral.updateMany(
+    { referredUserId: userId, level: 1, status: REFERRAL_STATUSES.PENDING },
+    {
+      $set: {
+        status: REFERRAL_STATUSES.CONVERTED,
+        commissionAmount: 0,
+        commissionPaid: 0,
+        commissionPaidAt: null,
+        conversionType: 'subscription',
+        conversionAmount: amount,
+        notes: 'Admin activation without commission PIN'
+      }
+    }
+  );
+};
+
 exports.adminActivateStudent = async (req, res, next) => {
   try {
     const { userId } = req.params;
+    const { commissionPin } = req.body;
     const user = await User.findById(userId);
     if (!user) return sendError(res, 'User not found', 404);
 
@@ -517,16 +541,36 @@ exports.adminActivateStudent = async (req, res, next) => {
     const amount = await getActivationAmount();
     const sub = await activateUserAndCreateSubscription(userId, amount, 'admin', { activatedBy: req.user._id, activatedByName: `${req.user.firstName} ${req.user.lastName}` });
 
-    await payReferralCommission(userId, amount);
+    // Commission must NOT be paid when an admin activates an account, unless a
+    // valid commission PIN (a `pin` coupon with noCommission = false) is supplied.
+    let commissionPaid = false;
+    if (commissionPin) {
+      const coupon = await Coupon.findOne({ code: String(commissionPin).toUpperCase(), type: 'pin' });
+      const valid = coupon && !coupon.noCommission && coupon.isActive && coupon.usedCount < 1 && !(coupon.usedBy || []).includes(userId);
+      if (valid && (await coupon.isValid(user._id, 0)).valid) {
+        await payReferralCommission(userId, amount);
+        commissionPaid = true;
+        coupon.usedCount += 1;
+        coupon.usedBy.push(userId);
+        coupon.isActive = false;
+        await coupon.save();
+      } else {
+        // Invalid / no-commission PIN -> no referral commission is paid.
+        await closePendingReferralNoCommission(userId);
+      }
+    } else {
+      // Admin activated WITHOUT a commission PIN -> no commission at all.
+      await closePendingReferralNoCommission(userId);
+    }
 
     notifyStudentActivity({
       user,
       action: 'account_activated',
-      details: { method: 'admin', amount, activated_by: `${req.user.firstName} ${req.user.lastName}` }
+      details: { method: 'admin', amount, commissionPaid, activated_by: `${req.user.firstName} ${req.user.lastName}` }
     });
 
     sendAccountApprovedEmail(user).catch((e) => console.error('[EMAIL] sendAccountApprovedEmail:', e.message));
 
-    sendSuccess(res, { subscription: sub, user: { _id: user._id, firstName: user.firstName, lastName: user.lastName, email: user.email } }, `User ${user.firstName} ${user.lastName} activated successfully by admin`, 201);
+    sendSuccess(res, { subscription: sub, commissionPaid, user: { _id: user._id, firstName: user.firstName, lastName: user.lastName, email: user.email } }, `User ${user.firstName} ${user.lastName} activated successfully by admin`, 201);
   } catch (error) { next(error); }
 };

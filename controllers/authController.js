@@ -343,11 +343,12 @@ exports.changePassword = async (req, res, next) => {
 
 exports.updateProfile = async (req, res, next) => {
   try {
-    const { firstName, lastName, phone, country } = req.body;
+    // Normal users may NOT change their email or phone from the profile page.
+    // Only admins may change email/phone (via the admin user-management endpoint).
+    const { firstName, lastName, country } = req.body;
     const updateData = {};
     if (firstName) updateData.firstName = firstName;
     if (lastName) updateData.lastName = lastName;
-    if (phone) updateData.phone = phone;
     if (country) updateData.country = country;
     if (req.file) updateData.avatar = `/uploads/avatars/${req.file.filename}`;
 

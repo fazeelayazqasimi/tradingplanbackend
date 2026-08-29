@@ -1,6 +1,10 @@
 const MarketOverview = require('../models/MarketOverview');
 const { sendSuccess, sendError } = require('../helpers/response');
 
+exports.getMarketOverviewInternal = async () => {
+  return await MarketOverview.getOrCreate();
+};
+
 exports.getMarketOverview = async (req, res, next) => {
   try {
     const data = await MarketOverview.getOrCreate();

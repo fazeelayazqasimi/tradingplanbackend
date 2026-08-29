@@ -106,6 +106,7 @@ app.use('/api/subscriptions', require('./routes/subscriptions'));
 app.use('/api/copy-trading', require('./routes/copyTrading'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/admin', require('./routes/admin'));
+app.use('/api/admin/export', require('./routes/export'));
 app.use('/api/support', require('./routes/support'));
 app.use('/api/contact', require('./routes/contact'));
 app.use('/api/faqs', require('./routes/faqs'));

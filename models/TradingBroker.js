@@ -8,6 +8,10 @@ const tradingBrokerSchema = new mongoose.Schema({
     unique: true,
     maxlength: [100, 'Name cannot exceed 100 characters']
   },
+  logo: {
+    type: String,
+    default: null
+  },
   isActive: {
     type: Boolean,
     default: true

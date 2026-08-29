@@ -50,11 +50,27 @@ exports.remove = async (req, res, next) => {
 exports.uploadFile = async (req, res, next) => {
   try {
     if (!req.file) return sendError(res, 'No file uploaded', 400);
-    const url = req.file.path || `/uploads/media/${req.file.filename}`;
+    const url = (req.file.path && /^https?:\/\//.test(req.file.path))
+      ? req.file.path
+      : `/uploads/media/${req.file.filename}`;
     sendSuccess(res, {
       url,
       fileName: req.file.originalname,
-      fileSize: req.file.size || 0,
+      fileSize: req.file.size || 0
     }, 'File uploaded', 201);
+  } catch (error) { next(error); }
+};
+
+exports.uploadVideo = async (req, res, next) => {
+  try {
+    if (!req.file) return sendError(res, 'No video uploaded', 400);
+    const url = (req.file.path && /^https?:\/\//.test(req.file.path))
+      ? req.file.path
+      : `/uploads/videos/${req.file.filename}`;
+    sendSuccess(res, {
+      url,
+      fileName: req.file.originalname,
+      fileSize: req.file.size || 0
+    }, 'Video uploaded', 201);
   } catch (error) { next(error); }
 };
