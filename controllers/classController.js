@@ -4,7 +4,6 @@ const { sendSuccess, sendError, sendPaginated } = require('../helpers/response')
 const { getPaginationOptions } = require('../helpers/pagination');
 const { sendClassPublishedEmail } = require('../services/emailService');
 
-const ALLOWED_SLOTS = ['Morning', 'Evening', 'Weekend'];
 const ALLOWED_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 const resolveVideoUrl = (file, folder) => {
@@ -12,6 +11,24 @@ const resolveVideoUrl = (file, folder) => {
   return (file.path && /^https?:\/\//.test(file.path))
     ? file.path
     : `/uploads/${folder}/${file.filename}`;
+};
+
+// Parse slots from request body (sent as a JSON string when using multipart/form-data)
+const parseSlots = (raw) => {
+  if (!raw) return [];
+  let arr = raw;
+  if (typeof raw === 'string') {
+    try { arr = JSON.parse(raw); } catch { return []; }
+  }
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .filter(s => s && s.label)
+    .map(s => ({
+      label: String(s.label),
+      day: s.day || '',
+      time: s.time || '',
+      capacity: Number(s.capacity) || 0,
+    }));
 };
 
 exports.getClasses = async (req, res, next) => {
@@ -52,6 +69,7 @@ exports.createClass = async (req, res, next) => {
       time,
       instructor,
       isActive: true,
+      slots: parseSlots(req.body.slots),
     };
     if (type === 'online') {
       classData.meetLink = meetLink;
@@ -98,6 +116,7 @@ exports.updateClass = async (req, res, next) => {
     if (meetLink !== undefined && cls.type === 'online') cls.meetLink = meetLink;
     if (instructor !== undefined) cls.instructor = instructor;
     if (isActive !== undefined) cls.isActive = isActive;
+    if (req.body.slots !== undefined) cls.slots = parseSlots(req.body.slots);
     if (req.file && cls.type === 'physical') {
       cls.videoUrl = resolveVideoUrl(req.file, 'videos');
     }
@@ -118,8 +137,16 @@ exports.enrollInClass = async (req, res, next) => {
     const studentName = [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
     const studentEmail = user.email || '';
 
-    let preferredSlot = req.body.preferredSlot || 'Morning';
-    if (!ALLOWED_SLOTS.includes(preferredSlot)) preferredSlot = 'Morning';
+    const slotId = req.body.slotId || null;
+    let slotLabel = '';
+    if (slotId) {
+      const slot = cls.slots.id(slotId);
+      if (!slot) return sendError(res, 'Selected slot is not available for this class', 400);
+      slotLabel = slot.label;
+    } else if (cls.slots.length > 0) {
+      return sendError(res, 'Please select an available slot', 400);
+    }
+
     let preferredDays = Array.isArray(req.body.preferredDays) ? req.body.preferredDays : [];
     preferredDays = preferredDays.filter(d => ALLOWED_DAYS.includes(d));
 
@@ -127,7 +154,8 @@ exports.enrollInClass = async (req, res, next) => {
     if (existing) {
       existing.studentName = studentName;
       existing.studentEmail = studentEmail;
-      existing.preferredSlot = preferredSlot;
+      existing.slotId = slotId;
+      existing.slotLabel = slotLabel;
       existing.preferredDays = preferredDays;
       existing.createdAt = Date.now();
     } else {
@@ -135,13 +163,67 @@ exports.enrollInClass = async (req, res, next) => {
         userId: user._id,
         studentName,
         studentEmail,
-        preferredSlot,
+        slotId,
+        slotLabel,
         preferredDays,
       });
     }
 
     await cls.save();
     sendSuccess(res, cls, existing ? 'Enrollment updated' : 'Enrolled successfully', 201);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ---------------- Admin slot management ----------------
+
+exports.addSlot = async (req, res, next) => {
+  try {
+    const cls = await Class.findById(req.params.id);
+    if (!cls) return sendError(res, 'Class not found', 404);
+    const { label, day, time, capacity } = req.body;
+    if (!label || !String(label).trim()) return sendError(res, 'Slot label is required', 400);
+    cls.slots.push({
+      label: String(label).trim(),
+      day: day || '',
+      time: time || '',
+      capacity: Number(capacity) || 0,
+    });
+    await cls.save();
+    sendSuccess(res, cls, 'Slot added', 201);
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.updateSlot = async (req, res, next) => {
+  try {
+    const cls = await Class.findById(req.params.id);
+    if (!cls) return sendError(res, 'Class not found', 404);
+    const slot = cls.slots.id(req.params.slotId);
+    if (!slot) return sendError(res, 'Slot not found', 404);
+    const { label, day, time, capacity } = req.body;
+    if (label !== undefined) slot.label = String(label).trim();
+    if (day !== undefined) slot.day = day;
+    if (time !== undefined) slot.time = time;
+    if (capacity !== undefined) slot.capacity = Number(capacity) || 0;
+    await cls.save();
+    sendSuccess(res, cls, 'Slot updated');
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.removeSlot = async (req, res, next) => {
+  try {
+    const cls = await Class.findById(req.params.id);
+    if (!cls) return sendError(res, 'Class not found', 404);
+    const slot = cls.slots.id(req.params.slotId);
+    if (!slot) return sendError(res, 'Slot not found', 404);
+    cls.slots.pull(req.params.slotId);
+    await cls.save();
+    sendSuccess(res, cls, 'Slot removed');
   } catch (error) {
     next(error);
   }

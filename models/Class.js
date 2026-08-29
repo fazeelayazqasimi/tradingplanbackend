@@ -42,6 +42,31 @@ const classSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
+  // Admin-managed available time slots shown to students in the enrollment form
+  slots: [
+    {
+      label: {
+        type: String,
+        required: [true, 'Slot label is required'],
+        trim: true,
+      },
+      day: {
+        type: String,
+        trim: true,
+        default: '',
+      },
+      time: {
+        type: String,
+        trim: true,
+        default: '',
+      },
+      capacity: {
+        type: Number,
+        default: 0,
+        min: [0, 'Capacity cannot be negative'],
+      },
+    },
+  ],
   enrollments: [
     {
       userId: {
@@ -58,10 +83,13 @@ const classSchema = new mongoose.Schema({
         trim: true,
         default: '',
       },
-      preferredSlot: {
+      slotId: {
+        type: mongoose.Schema.Types.ObjectId,
+      },
+      slotLabel: {
         type: String,
-        enum: ['Morning', 'Evening', 'Weekend'],
-        default: 'Morning',
+        trim: true,
+        default: '',
       },
       preferredDays: {
         type: [String],
