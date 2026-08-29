@@ -191,6 +191,28 @@ exports.getStudentDashboard = async (req, res, next) => {
     const userId = req.user._id;
     const isPremium = req.user.subscriptionStatus === 'active';
 
+    // Every sub-query is wrapped so a single failing lookup can NEVER 500 the
+    // whole dashboard. Failures degrade to empty defaults and are logged for
+    // diagnosis, keeping the dashboard fast and always rendering.
+    const safe = async (promise, fallback) => {
+      try {
+        const value = await promise;
+        return value === undefined ? fallback : value;
+      } catch (err) {
+        console.error('[DASHBOARD] sub-query failed:', err.message);
+        return fallback;
+      }
+    };
+
+    const MarketOverview = require('./marketOverviewController');
+    const Webinar = require('../models/Webinar');
+    const ZoomSession = require('../models/ZoomSession');
+    const MarketUpdate = require('../models/MarketUpdate');
+    const Announcement = require('../models/Announcement');
+    const Course = require('../models/Course');
+    const CopyTrading = require('../models/CopyTrading');
+    const BusinessProfile = require('../models/BusinessProfile');
+
     const [
       enrolled,
       signals,
@@ -210,32 +232,32 @@ exports.getStudentDashboard = async (req, res, next) => {
       copyStats,
       businessProfiles,
     ] = await Promise.all([
-      UserProgress.find({ userId }).populate({ path: 'courseId', select: 'title slug thumbnail level category totalLessons' }).limit(3).lean(),
-      Signal.find({ isPublished: true }).sort({ createdAt: -1 }).limit(5).select('title symbol side isPublished createdAt').lean(),
-      Wallet.findOne({ userId, type: 'main' }).select('availableBalance pendingBalance').lean(),
-      Wallet.findOne({ userId, type: 'funding' }).select('availableBalance').lean(),
-      Wallet.aggregate([
+      safe(UserProgress.find({ userId }).populate({ path: 'courseId', select: 'title slug thumbnail level category totalLessons' }).limit(3).lean(), []),
+      safe(Signal.find({ isPublished: true }).sort({ createdAt: -1 }).limit(5).select('title symbol side isPublished createdAt').lean(), []),
+      safe(Wallet.findOne({ userId, type: 'main' }).select('availableBalance pendingBalance').lean(), null),
+      safe(Wallet.findOne({ userId, type: 'funding' }).select('availableBalance').lean(), null),
+      safe(Wallet.aggregate([
         { $match: { userId } },
         { $group: { _id: null, available: { $sum: '$availableBalance' }, pending: { $sum: '$pendingBalance' } } },
-      ]),
-      UserRank.findOne({ userId }).populate('currentRankId', 'name').lean(),
-      Referral.aggregate([
+      ]), []),
+      safe(UserRank.findOne({ userId }).populate('currentRankId', 'name').lean(), null),
+      safe(Referral.aggregate([
         { $match: { referrerId: userId } },
         { $group: { _id: null, totalReferrals: { $sum: 1 }, directReferrals: { $sum: { $cond: [{ $eq: ['$level', 1] }, 1, 0] } }, indirectReferrals: { $sum: { $cond: [{ $eq: ['$level', 2] }, 1, 0] } }, freeMembers: { $sum: { $cond: [{ $eq: ['$level', 0] }, 1, 0] } }, activeReferrals: { $sum: { $cond: [{ $eq: ['$status', 'converted'] }, 1, 0] } }, totalCommission: { $sum: '$commissionAmount' } } },
-      ]),
-      User.findById(userId).select('referralCode').lean(),
-      require('./marketOverviewController').getMarketOverviewInternal(),
-      Signal.countDocuments({ isPublished: true, status: 'open' }),
-      require('../models/Webinar').find({ isFree: true, isPublished: true }).sort({ date: -1 }).limit(5).select('title date publishedAt summary description').lean(),
-      require('../models/ZoomSession').find({ category: 'free-zoom', isPublished: true }).sort({ date: -1 }).limit(5).select('title date publishedAt summary description').lean(),
-      require('../models/MarketUpdate').find({ isPublished: true }).sort({ createdAt: -1 }).limit(5).select('title createdAt summary description').lean(),
-      require('../models/Announcement').find({ isPublished: true }).sort({ createdAt: -1 }).limit(5).select('title createdAt content').lean(),
-      Course.find({ isFree: true }).sort({ order: -1 }).limit(5).select('title slug thumbnail level category totalLessons').lean(),
-      require('../models/CopyTrading').aggregate([
+      ]), []),
+      safe(User.findById(userId).select('referralCode').lean(), null),
+      safe(MarketOverview.getMarketOverviewInternal(), {}),
+      safe(Signal.countDocuments({ isPublished: true, status: 'open' }), 0),
+      safe(Webinar.find({ isFree: true, isPublished: true }).sort({ date: -1 }).limit(5).select('title date publishedAt summary description').lean(), []),
+      safe(ZoomSession.find({ category: 'free-zoom', isPublished: true }).sort({ date: -1 }).limit(5).select('title date publishedAt summary description').lean(), []),
+      safe(MarketUpdate.find({ isPublished: true }).sort({ createdAt: -1 }).limit(5).select('title createdAt summary description').lean(), []),
+      safe(Announcement.find({ isPublished: true }).sort({ createdAt: -1 }).limit(5).select('title createdAt content').lean(), []),
+      safe(Course.find({ isFree: true }).sort({ order: -1 }).limit(5).select('title slug thumbnail level category totalLessons').lean(), []),
+      safe(CopyTrading.aggregate([
         { $match: { userId } },
         { $group: { _id: null, totalTrades: { $sum: 1 }, wins: { $sum: { $cond: [{ $eq: ['$result', 'win'] }, 1, 0] } }, totalProfit: { $sum: '$profit' }, openTrades: { $sum: { $cond: [{ $eq: ['$status', 'open'] }, 1, 0 ] } } } },
-      ]),
-      require('../models/BusinessProfile').find({ isPublished: true }).select('title fileUrl fileName').lean(),
+      ]), []),
+      safe(BusinessProfile.find({ isPublished: true }).select('title fileUrl fileName').lean(), []),
     ]);
 
     const wallet = mainWallet || { availableBalance: 0, pendingBalance: 0 };
@@ -266,6 +288,28 @@ exports.getStudentDashboard = async (req, res, next) => {
       businessProfiles,
     });
   } catch (error) {
-    next(error);
+    console.error('[DASHBOARD] handler error:', error.message);
+    const isPremium = req.user?.subscriptionStatus === 'active';
+    sendSuccess(res, {
+      isPremium,
+      enrolled: [],
+      signals: [],
+      walletData: { availableBalance: 0, pendingBalance: 0 },
+      fundingWalletData: { availableBalance: 0 },
+      walletStats: { available: 0, pending: 0 },
+      rank: null,
+      nextRank: null,
+      referralStats: { totalReferrals: 0, directReferrals: 0, indirectReferrals: 0, freeMembers: 0, activeReferrals: 0, totalCommission: 0 },
+      referralCode: '',
+      marketOverview: {},
+      openSignalsCount: 0,
+      freeWebinars: [],
+      freeZoomSessions: [],
+      marketUpdates: [],
+      announcements: [],
+      freeCourses: [],
+      copyStats: { totalTrades: 0, wins: 0, totalProfit: 0, openTrades: 0 },
+      businessProfiles: [],
+    });
   }
 };
