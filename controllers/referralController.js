@@ -299,3 +299,5 @@ exports.deleteReferral = async (req, res, next) => {
     sendSuccess(res, null, 'Referral deleted');
   } catch (error) { next(error); }
 };
+
+exports.getDownlineMembers = getDownlineMembers;

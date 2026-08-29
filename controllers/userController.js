@@ -213,13 +213,14 @@ exports.getStudentDashboard = async (req, res, next) => {
     const CopyTrading = require('../models/CopyTrading');
     const BusinessProfile = require('../models/BusinessProfile');
     const Signal = require('../models/Signal');
+    const { getDownlineMembers } = require('../controllers/referralController');
 
     const [
       enrolled,
       signals,
       wallets,
       rank,
-      referralStats,
+      downlineRaw,
       referralCode,
       marketOverview,
       openSignalsCount,
@@ -237,10 +238,7 @@ exports.getStudentDashboard = async (req, res, next) => {
       safe(Signal.find({ isPublished: true }).sort({ createdAt: -1 }).limit(5).select('title symbol side isPublished createdAt').lean(), []),
       safe(Wallet.find({ userId }).lean(), []),
       safe(UserRank.findOne({ userId }).populate('currentRankId', 'name').lean(), null),
-      safe(Referral.aggregate([
-        { $match: { referrerId: userId } },
-        { $group: { _id: null, totalReferrals: { $sum: 1 }, directReferrals: { $sum: { $cond: [{ $eq: ['$level', 1] }, 1, 0] } }, indirectReferrals: { $sum: { $cond: [{ $eq: ['$level', 2] }, 1, 0] } }, freeMembers: { $sum: { $cond: [{ $eq: ['$level', 0] }, 1, 0] } }, activeReferrals: { $sum: { $cond: [{ $eq: ['$status', 'converted'] }, 1, 0] } }, totalCommission: { $sum: '$commissionAmount' } } },
-      ]), []),
+      safe(getDownlineMembers(userId), []),
       safe(User.findById(userId).select('referralCode').lean(), null),
       safe(MarketOverview.getMarketOverviewInternal(), {}),
       safe(Signal.countDocuments({ isPublished: true, status: 'open' }), 0),
@@ -268,8 +266,20 @@ exports.getStudentDashboard = async (req, res, next) => {
     const mainWallet = walletList.find(w => w.type === 'main') || { availableBalance: 0, pendingBalance: 0 };
     const fundingWallet = walletList.find(w => w.type === 'funding') || { availableBalance: 0 };
     const ws = { available: mainWallet.availableBalance || 0, pending: mainWallet.pendingBalance || 0 };
-    const r = referralStats[0] || { totalReferrals: 0, directReferrals: 0, indirectReferrals: 0, freeMembers: 0, activeReferrals: 0, totalCommission: 0 };
-    r.freeRegistrationEarnings = freeRegAgg[0]?.total || 0;
+    const downline = downlineRaw || [];
+    const isActiveMemberFn = (u) => !!(u && u.isApproved && u.subscriptionStatus === 'active');
+    const directRef = downline.filter(m => m.depth === 1).length;
+    const indirectRef = downline.filter(m => m.depth >= 2).length;
+    const activeMem = downline.filter(m => isActiveMemberFn(m.ref?.referredUserId)).length;
+    const r = {
+      totalReferrals: downline.length,
+      directReferrals: directRef,
+      indirectReferrals: indirectRef,
+      freeMembers: downline.length - activeMem,
+      activeReferrals: activeMem,
+      totalCommission: (commissionAgg[0]?.total || 0),
+      freeRegistrationEarnings: freeRegAgg[0]?.total || 0,
+    };
     const cp = copyStats[0] || { totalTrades: 0, wins: 0, totalProfit: 0, openTrades: 0 };
 
     sendSuccess(res, {
