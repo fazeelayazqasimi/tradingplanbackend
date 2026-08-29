@@ -2,7 +2,7 @@ const router = require('express').Router();
 const { sendSuccess } = require('../helpers/response');
 const axios = require('axios');
 
-const FOREX_API = 'https://api.frankfurter.app/latest';
+const FOREX_API = 'https://api.frankfurter.dev/v1/latest';
 const GOLD_API = 'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/xau.json';
 const SILVER_API = 'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/xag.json';
 
@@ -33,6 +33,39 @@ async function fetchLiveQuotes() {
   return quotes;
 }
 
+// Free, keyless fallback used when TwelveData is unavailable (e.g. out of
+// daily credits). Sources: Frankfurter (ECB) for fiat FX, jsDelivr currency-api
+// for XAU/USD (gold), CoinGecko for BTC/USD & ETH/USD.
+async function fetchFallbackQuotes() {
+  const [forexRes, goldRes, cryptoRes] = await Promise.all([
+    axios.get(FOREX_API, { params: { base: 'USD' }, timeout: 15000 }).catch(() => null),
+    axios.get(GOLD_API, { timeout: 15000 }).catch(() => null),
+    axios.get('https://api.coingecko.com/api/v3/simple/price', {
+      params: { ids: 'bitcoin,ethereum', vs_currencies: 'usd', include_24hr_change: true },
+      timeout: 15000,
+    }).catch(() => null),
+  ]);
+  const quotes = {};
+  const forex = forexRes?.data?.rates || {};
+  const fxRate = (pair) => {
+    const [base, quote] = pair.split('/');
+    if (base === 'USD') return forex[quote];
+    if (quote === 'USD') return forex[base] ? 1 / forex[base] : undefined;
+    return undefined;
+  };
+  ['EUR/USD', 'GBP/USD', 'USD/JPY', 'AUD/USD', 'USD/CAD'].forEach((pair) => {
+    const price = fxRate(pair);
+    if (price) quotes[pair] = { symbol: pair, name: pair, close: price, open: price, high: price, low: price, change: 0, percent_change: 0, is_market_open: true };
+  });
+  const gold = goldRes?.data?.xau?.usd || goldRes?.data?.xau?.USD;
+  if (gold) quotes['XAU/USD'] = { symbol: 'XAU/USD', name: 'Gold', close: gold, open: gold, high: gold, low: gold, change: 0, percent_change: 0, is_market_open: true };
+  const cg = cryptoRes?.data || {};
+  if (cg.bitcoin) quotes['BTC/USD'] = { symbol: 'BTC/USD', name: 'Bitcoin', close: cg.bitcoin.usd, open: cg.bitcoin.usd, high: cg.bitcoin.usd, low: cg.bitcoin.usd, change: cg.bitcoin.usd_24h_change || 0, percent_change: cg.bitcoin.usd_24h_change || 0, is_market_open: true };
+  if (cg.ethereum) quotes['ETH/USD'] = { symbol: 'ETH/USD', name: 'Ethereum', close: cg.ethereum.usd, open: cg.ethereum.usd, high: cg.ethereum.usd, low: cg.ethereum.usd, change: cg.ethereum.usd_24h_change || 0, percent_change: cg.ethereum.usd_24h_change || 0, is_market_open: true };
+  if (Object.keys(quotes).length === 0) throw new Error('All fallback rate sources failed');
+  return quotes;
+}
+
 async function getLiveQuotes() {
   if (liveCache.quotes && Date.now() - liveCache.fetchedAt < LIVE_CACHE_TTL_MS) {
     return liveCache.quotes;
@@ -42,8 +75,16 @@ async function getLiveQuotes() {
     liveCache = { quotes, fetchedAt: Date.now() };
     return quotes;
   } catch (e) {
-    if (liveCache.quotes) return liveCache.quotes;
-    throw e;
+    console.error('[LIVE-RATES] TwelveData unavailable, using free fallback:', e.message);
+    try {
+      const quotes = await fetchFallbackQuotes();
+      liveCache = { quotes, fetchedAt: Date.now() };
+      return quotes;
+    } catch (e2) {
+      console.error('[LIVE-RATES] fallback also failed:', e2.message);
+      if (liveCache.quotes) return liveCache.quotes;
+      throw e2;
+    }
   }
 }
 
@@ -104,9 +145,9 @@ router.get('/forex-rates', async (req, res, next) => {
   } catch (error) {
     try {
       const [forexRes, goldRes, silverRes] = await Promise.all([
-        axios.get(FOREX_API, { params: { from: 'USD' } }).catch(() => null),
-        axios.get(GOLD_API).catch(() => null),
-        axios.get(SILVER_API).catch(() => null),
+          axios.get(FOREX_API, { params: { base: 'USD' } }).catch(() => null),
+          axios.get(GOLD_API).catch(() => null),
+          axios.get(SILVER_API).catch(() => null),
       ]);
       const forexData = forexRes?.data?.rates || {};
       const goldRate = goldRes?.data?.xau?.usd || goldRes?.data?.xau?.USD || 0;
@@ -154,10 +195,10 @@ router.get('/gold-price', async (req, res, next) => {
     });
   } catch (error) {
     try {
-      const [goldRes, forexRes] = await Promise.all([
-        axios.get(GOLD_API).catch(() => null),
-        axios.get(FOREX_API, { params: { from: 'USD' } }).catch(() => null),
-      ]);
+        const [goldRes, forexRes] = await Promise.all([
+          axios.get(GOLD_API).catch(() => null),
+          axios.get(FOREX_API, { params: { base: 'USD' } }).catch(() => null),
+        ]);
 
       let goldPrice, goldHigh, goldLow, goldChange;
 
