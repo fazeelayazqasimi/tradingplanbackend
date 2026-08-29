@@ -72,7 +72,7 @@ async function getDownlineMembers(userId) {
     },
     {
       $project: {
-        direct: {
+        direct: [{
           _id: '$_id',
           referredUserId: '$referredUserId',
           status: '$status',
@@ -82,7 +82,7 @@ async function getDownlineMembers(userId) {
           createdAt: '$createdAt',
           level: '$level',
           depth: 1,
-        },
+        }],
         descendants: {
           $map: {
             input: {
