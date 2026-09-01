@@ -8,7 +8,7 @@ const { processReferralCommission } = require('../services/referralService');
 
 const USER_SELECT = 'firstName lastName email createdAt isApproved subscriptionStatus';
 
-const isActiveMember = (u) => !!(u && u.isApproved && u.subscriptionStatus === 'active');
+const isActiveMember = (u) => !!(u && (u.isApproved || u.subscriptionStatus === 'active'));
 
 exports.getMyReferralCode = async (req, res, next) => {
   try {
