@@ -30,16 +30,32 @@ exports.getUsers = async (req, res, next) => {
     const total = await User.countDocuments(filter);
     const users = await User.find(filter).select('-password').sort(sort).skip((page - 1) * limit).limit(limit).lean();
     const userIds = users.map(u => u._id);
-    const [wallets, userRanks] = await Promise.all([
+    const [wallets, userRanks, referrals] = await Promise.all([
       Wallet.find({ userId: { $in: userIds } }).lean(),
       UserRank.find({ userId: { $in: userIds } }).populate('currentRankId').lean(),
+      Referral.find({ referrerId: { $in: userIds } }).lean(),
     ]);
     const walletMap = wallets.reduce((m, w) => { m[w.userId.toString()] = w; return m; }, {});
     const rankMap = userRanks.reduce((m, r) => { m[r.userId.toString()] = r; return m; }, {});
+    const referralMap = referrals.reduce((m, r) => {
+      m[r.referredUserId.toString()] = r.referrerId.toString();
+      return m;
+    }, {});
+    const referrerIds = [...new Set(Object.values(referralMap).filter(Boolean))];
+    const referrerNames = {};
+    if (referrerIds.length > 0) {
+      const referrerUsers = await User.find({ _id: { $in: referrerIds } }).select('firstName lastName');
+      referrerUsers.forEach(u => {
+        referrerNames[u._id.toString()] = `${u.firstName} ${u.lastName}`;
+      });
+    }
     const enriched = users.map(u => ({
       ...u,
       rankName: rankMap[u._id.toString()]?.currentRankId?.name || 'N/A',
       totalEarnings: walletMap[u._id.toString()]?.totalEarned || 0,
+      referralCode: u.referralCode || '',
+      upline: referralMap[u._id.toString()] || null,
+      referrerName: referrerNames[u._id.toString()] || null,
     }));
     sendPaginated(res, enriched, total, page, limit);
   } catch (error) {
