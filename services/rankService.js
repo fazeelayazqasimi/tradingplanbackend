@@ -6,7 +6,7 @@ const Referral = require('../models/Referral');
 const { sendRankPromotionEmail } = require('./emailService');
 const ActivityLog = require('../models/ActivityLog');
 
-const ACTIVE_REFERRAL_STATUSES = ['converted', 'paid'];
+const ACTIVE_REFERRAL_STATUSES = ['converted', 'paid', 'pending'];
 const MAX_TREE_DEPTH = 30;
 
 const getActiveRanks = () => Rank.find({ isActive: true }).sort({ order: 1 }).lean();
@@ -50,7 +50,9 @@ const getRankQualification = async (userId, { requiredRankName = null, qualified
   }).select('_id referredUserId').lean();
 
   result.directReferrals = legs.length;
-  result.activeTeamMembers = legs.length;
+  
+  // activeTeamMembers starts at 0 - will count ALL active downline members in the tree
+  result.activeTeamMembers = 0;
 
   const legQualified = new Set();
   let frontier = legs.map((leg) => ({

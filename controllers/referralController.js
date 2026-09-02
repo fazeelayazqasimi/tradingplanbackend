@@ -37,7 +37,7 @@ async function processPendingForUser(userId) {
  * Cycle-safe via visited set; returns every downline member tagged with depth
  * (1 = direct, 2+ = indirect). No depth cap, so full downline is always counted.
  */
-async function getDownlineMembers(userId) {
+async function getDownlineMembers(userId, startDate, endDate) {
   // Single aggregation using $graphLookup to walk the entire downline in ONE
   // query (eliminates the previous N+1 BFS). Each referral is stored with
   // level:1 relative to its immediate referrer, so following only level-1
@@ -51,13 +51,22 @@ async function getDownlineMembers(userId) {
     subscriptionStatus: 1,
   };
 
+  const matchFilter = {
+    referrerId: userId,
+    referredUserId: { $exists: true, $ne: null },
+  };
+  if (startDate || endDate) {
+    matchFilter.createdAt = {};
+    if (startDate) matchFilter.createdAt.$gte = new Date(startDate);
+    if (endDate) matchFilter.createdAt.$lte = new Date(endDate + 'T23:59:59.999Z');
+  }
+
   const docs = await Referral.aggregate([
     {
-      $match: {
-        referrerId: userId,
-        level: 1,
-        referredUserId: { $exists: true, $ne: null },
-      },
+      $match: matchFilter,
+    },
+    {
+      $sort: { createdAt: -1 },
     },
     {
       $graphLookup: {
@@ -166,8 +175,14 @@ const mapReferral = (ref, level) => ({
  * Returns one level of children for a user (lazy tree expansion),
  * each node carrying its own child count.
  */
-async function buildChildren(userId) {
-  const refs = await Referral.find({ referrerId: userId, level: 1 })
+async function buildChildren(userId, startDate, endDate) {
+  const matchFilter = {};
+  if (startDate || endDate) {
+    matchFilter.createdAt = {};
+    if (startDate) matchFilter.createdAt.$gte = new Date(startDate);
+    if (endDate) matchFilter.createdAt.$lte = new Date(endDate + 'T23:59:59.999Z');
+  }
+  const refs = await Referral.find({ referrerId: userId, level: 1, ...matchFilter })
     .populate('referredUserId', USER_SELECT)
     .sort({ createdAt: -1 })
     .lean();
@@ -192,7 +207,16 @@ exports.getReferralStats = async (req, res, next) => {
   try {
     await processPendingForUser(req.user._id);
 
-    const members = await getDownlineMembers(req.user._id);
+    // Date filter support
+    const { startDate, endDate } = req.query;
+    let matchFilter = { referrerId: req.user._id };
+    if (startDate || endDate) {
+      matchFilter.createdAt = {};
+      if (startDate) matchFilter.createdAt.$gte = new Date(startDate);
+      if (endDate) matchFilter.createdAt.$lte = new Date(endDate + 'T23:59:59.999Z');
+    }
+
+    const members = await getDownlineMembers(req.user._id, startDate, endDate);
     const directCount = members.filter(m => m.depth === 1).length;
     const indirectCount = members.filter(m => m.depth >= 2).length;
     const totalDownline = members.length;
@@ -200,15 +224,15 @@ exports.getReferralStats = async (req, res, next) => {
     const freeMembers = totalDownline - activeMembers;
 
     const earnings = await Referral.aggregate([
-      { $match: { referrerId: req.user._id, status: { $in: ['converted', 'paid'] } } },
+      { $match: matchFilter },
       { $group: { _id: null, total: { $sum: '$commissionAmount' } } },
     ]);
     const pendingCommissions = await Referral.aggregate([
-      { $match: { referrerId: req.user._id, status: 'pending' } },
+      { $match: { ...matchFilter, status: 'pending' } },
       { $group: { _id: null, total: { $sum: '$commissionAmount' } } },
     ]);
-    const pendingCount = await Referral.countDocuments({ referrerId: req.user._id, status: 'pending' });
-    const activeCount = await Referral.countDocuments({ referrerId: req.user._id, status: { $in: ['converted', 'paid'] } });
+    const pendingCount = await Referral.countDocuments({ ...matchFilter, status: 'pending' });
+    const activeCount = await Referral.countDocuments({ ...matchFilter, status: { $in: ['converted', 'paid'] } });
 
     const freeRegEarnings = await WalletTransaction.aggregate([
       { $match: { userId: req.user._id, category: 'registration' } },
@@ -238,10 +262,12 @@ exports.getReferralTree = async (req, res, next) => {
   try {
     await processPendingForUser(req.user._id);
 
-    // Root + first level only; deeper branches are loaded lazily via /tree/:userId
-    const tree = await buildChildren(req.user._id);
+    const { startDate, endDate } = req.query;
 
-    const members = await getDownlineMembers(req.user._id);
+    // Root + first level only; deeper branches are loaded lazily via /tree/:userId
+    const tree = await buildChildren(req.user._id, startDate, endDate);
+
+    const members = await getDownlineMembers(req.user._id, startDate, endDate);
     const direct = members.filter(m => m.depth === 1).map(m => mapReferral(m.ref, 1));
     const indirect = members.filter(m => m.depth >= 2).map(m => mapReferral(m.ref, m.depth));
 

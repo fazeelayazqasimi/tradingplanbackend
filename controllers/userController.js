@@ -191,8 +191,8 @@ exports.getStudentDashboard = async (req, res, next) => {
     const userId = req.user._id;
     const isPremium = req.user.subscriptionStatus === 'active';
 
-    // Every sub-query is wrapped so a single failing lookup can NEVER 500 the
-    // whole dashboard. Failures degrade to empty defaults and are logged for
+    // Every sub-query is wrapped so a single failing lookup can NEVER
+    // the whole dashboard. Failures degrade to empty defaults and are logged for
     // diagnosis, keeping the dashboard fast and always rendering.
     const safe = async (promise, fallback) => {
       try {
@@ -203,6 +203,19 @@ exports.getStudentDashboard = async (req, res, next) => {
         return fallback;
       }
     };
+
+    // Ensure UserRank document exists (same logic as getMyRank)
+    let userRankDoc = await UserRank.findOne({ userId }).lean();
+    if (!userRankDoc) {
+      const Rank = require('../models/Rank');
+      const defaultRank = await Rank.findOne({ isActive: true }).sort({ order: 1 });
+      if (defaultRank) {
+        userRankDoc = await UserRank.create({ userId, currentRankId: defaultRank._id });
+      }
+    }
+
+    // Populate currentRankId
+    const rankPopulated = userRankDoc ? await UserRank.findOne({ userId }).populate('currentRankId', 'name').lean() : null;
 
     const MarketOverview = require('./marketOverviewController');
     const Webinar = require('../models/Webinar');
@@ -282,6 +295,30 @@ exports.getStudentDashboard = async (req, res, next) => {
     };
     const cp = copyStats[0] || { totalTrades: 0, wins: 0, totalProfit: 0, openTrades: 0 };
 
+    const Rank = require('../models/Rank');
+
+// Compute next rank info
+    let nextRank = null;
+    try {
+      if (rankPopulated?.currentRankId?._id) {
+        const currentRankId = rankPopulated.currentRankId._id;
+        const currentRank = await Rank.findById(currentRankId).lean();
+        if (currentRank) {
+          const allRanks = await Rank.find({}).sort({ order: 1, name: 1 }).lean();
+          const currentIndex = allRanks.findIndex(r => r._id.toString() === currentRankId.toString());
+          if (currentIndex >= 0 && currentIndex < allRanks.length - 1) {
+            nextRank = {
+              name: allRanks[currentIndex + 1].name,
+              minDirectReferrals: allRanks[currentIndex + 1].minDirectReferrals || 0,
+              minTeamSize: allRanks[currentIndex + 1].minTeamSize || 0,
+            };
+          }
+}
+      }
+    } catch (err) {
+      console.error('[DASHBOARD] Next rank computation error:', err.message);
+    }
+
     sendSuccess(res, {
       isPremium,
       enrolled: enrolled?.map(e => e.courseId).filter(Boolean) || [],
@@ -290,7 +327,7 @@ exports.getStudentDashboard = async (req, res, next) => {
       fundingWalletData: fundingWallet,
       walletStats: ws,
       rank,
-      nextRank: rank?.currentRankId ? null : null,
+      nextRank,
       referralStats: r,
       referralCode: referralCode?.referralCode || '',
       marketOverview,

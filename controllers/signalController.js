@@ -28,14 +28,27 @@ exports.getSignals = async (req, res, next) => {
     const status = req.query.status;
     const action = req.query.action;
     const symbol = req.query.symbol;
+    const startDate = req.query.startDate;
+    const endDate = req.query.endDate;
     const filter = {};
     if (status) filter.status = status;
     if (action) filter.action = action;
     if (symbol) filter.symbol = { $regex: symbol, $options: 'i' };
     if (search) filter.description = { $regex: search, $options: 'i' };
+    if (startDate || endDate) {
+      filter.createdAt = {};
+      if (startDate) filter.createdAt.$gte = new Date(startDate);
+      if (endDate) filter.createdAt.$lte = new Date(endDate + 'T23:59:59.999Z');
+    }
 
+    let sortOptions = { createdAt: -1 };
+    if (sort === 'newest' || sort === '-createdAt') {
+      sortOptions = { createdAt: -1 };
+    } else if (sort === 'oldest' || sort === 'createdAt') {
+      sortOptions = { createdAt: 1 };
+    }
     const total = await Signal.countDocuments(filter);
-    const signals = await Signal.find(filter).sort(sort || { createdAt: -1 }).skip((page - 1) * limit).limit(limit).populate('userId', 'firstName lastName avatar');
+    const signals = await Signal.find(filter).sort(sortOptions).skip((page - 1) * limit).limit(limit).populate('userId', 'firstName lastName avatar');
     sendPaginated(res, signals, total, page, limit);
   } catch (error) {
     next(error);
