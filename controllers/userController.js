@@ -33,7 +33,7 @@ exports.getUsers = async (req, res, next) => {
     const [wallets, userRanks, referrals] = await Promise.all([
       Wallet.find({ userId: { $in: userIds } }).lean(),
       UserRank.find({ userId: { $in: userIds } }).populate('currentRankId').lean(),
-      Referral.find({ referrerId: { $in: userIds } }).lean(),
+      Referral.find({ referredUserId: { $in: userIds } }).lean(),
     ]);
     const walletMap = wallets.reduce((m, w) => { m[w.userId.toString()] = w; return m; }, {});
     const rankMap = userRanks.reduce((m, r) => { m[r.userId.toString()] = r; return m; }, {});

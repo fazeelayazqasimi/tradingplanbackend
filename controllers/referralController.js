@@ -4,7 +4,7 @@ const Setting = require('../models/Setting');
 const WalletTransaction = require('../models/WalletTransaction');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions } = require('../helpers/pagination');
-const { processReferralCommission } = require('../services/referralService');
+const { processReferralCommission, generateReferralCode } = require('../services/referralService');
 
 const USER_SELECT = 'firstName lastName email createdAt isApproved subscriptionStatus';
 
@@ -12,7 +12,13 @@ const isActiveMember = (u) => !!(u && (u.isApproved || u.subscriptionStatus === 
 
 exports.getMyReferralCode = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user._id).select('referralCode');
+    let user = await User.findById(req.user._id).select('referralCode firstName');
+
+    if (!user.referralCode) {
+      const code = await generateReferralCode(user.firstName);
+      user = await User.findByIdAndUpdate(req.user._id, { referralCode: code }, { new: true });
+    }
+
     sendSuccess(res, { referralCode: user.referralCode, referralLink: `https://the4xhub.com/register?ref=${user.referralCode}` });
   } catch (error) { next(error); }
 };
