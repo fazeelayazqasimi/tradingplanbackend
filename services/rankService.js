@@ -6,7 +6,7 @@ const Referral = require('../models/Referral');
 const { sendRankPromotionEmail } = require('./emailService');
 const ActivityLog = require('../models/ActivityLog');
 
-const ACTIVE_REFERRAL_STATUSES = ['converted', 'paid', 'pending'];
+const ACTIVE_REFERRAL_STATUSES = ['converted', 'paid'];
 const MAX_TREE_DEPTH = 30;
 
 const getActiveRanks = () => Rank.find({ isActive: true }).sort({ order: 1 }).lean();
@@ -92,8 +92,11 @@ const getRankQualification = async (userId, { requiredRankName = null, qualified
         }
       }
       for (const childId of childrenByParent.get(f.userId) || []) {
+        const user = await User.findById(childId).select('isApproved subscriptionStatus').lean();
         nextFrontier.push({ userId: childId, legId: f.legId });
-        result.activeTeamMembers++;
+        if (user && user.isApproved && user.subscriptionStatus === 'active') {
+          result.activeTeamMembers++;
+        }
       }
     }
     frontier = nextFrontier;
