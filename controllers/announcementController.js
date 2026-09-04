@@ -6,6 +6,7 @@ const { sendAnnouncementEmail, getEmailRecipients } = require('../services/email
 const toPublicUrl = (file, folder) => {
   const p = file && file.path;
   if (p && /^https?:\/\//.test(p)) return p;
+  if (p && p.startsWith('/uploads')) return p;
   return `/uploads/${folder}/${file.filename}`;
 };
 

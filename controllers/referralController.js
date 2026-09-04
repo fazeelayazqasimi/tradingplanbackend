@@ -19,7 +19,7 @@ exports.getMyReferralCode = async (req, res, next) => {
       user = await User.findByIdAndUpdate(req.user._id, { referralCode: code }, { new: true });
     }
 
-    sendSuccess(res, { referralCode: user.referralCode, referralLink: `https://the4xhub.com/register?ref=${user.referralCode}` });
+    sendSuccess(res, { data: { code: user.referralCode, link: `https://the4xhub.com/register?ref=${user.referralCode}` } });
   } catch (error) { next(error); }
 };
 
@@ -117,7 +117,7 @@ async function getDownlineMembers(userId, startDate, endDate) {
               conversionAmount: '$$d.conversionAmount',
               createdAt: '$$d.createdAt',
               level: '$$d.level',
-              depth: { $add: ['$$d._gdepth', 2] },
+              depth: { $add: ['$$d._gdepth', 1] },
             },
           },
         },
@@ -245,22 +245,7 @@ exports.getReferralStats = async (req, res, next) => {
       { $group: { _id: null, total: { $sum: '$amount' } } },
     ]);
 
-    sendSuccess(res, {
-      directReferrals: directCount,
-      indirectReferrals: indirectCount,
-      totalReferrals: totalDownline,
-      totalTeam: totalDownline,
-      totalDownline,
-      totalEarnings: (earnings[0]?.total || 0) + (freeRegEarnings[0]?.total || 0),
-      pendingCommission: pendingCommissions[0]?.total || 0,
-      pendingReferrals: pendingCount,
-      activeReferrals: activeCount,
-      activeMembers,
-      freeMembers,
-      active: activeMembers,
-      free: freeMembers,
-      freeRegistrationEarnings: freeRegEarnings[0]?.total || 0,
-    });
+    sendSuccess(res, { data: { directReferrals: directCount, indirectReferrals: indirectCount, totalReferrals: totalDownline, totalTeam: totalDownline, totalDownline, totalEarnings: (earnings[0]?.total || 0) + (freeRegEarnings[0]?.total || 0), pendingCommission: pendingCommissions[0]?.total || 0, pendingReferrals: pendingCount, activeReferrals: activeCount, activeMembers, freeMembers, active: activeMembers, free: freeMembers, freeRegistrationEarnings: freeRegEarnings[0]?.total || 0 } });
   } catch (error) { next(error); }
 };
 
@@ -285,22 +270,7 @@ exports.getReferralTree = async (req, res, next) => {
     const totalDownline = members.length;
     const active = members.filter(m => isActiveMember(m.ref.referredUserId)).length;
 
-    sendSuccess(res, {
-      tree,
-      direct,
-      indirect,
-      stats: {
-        totalDirect: direct.length,
-        totalIndirect: indirect.length,
-        totalReferrals: totalDownline,
-        totalDownline,
-        active,
-        free: totalDownline - active,
-        totalCommission: Math.round((commissionAgg[0]?.total || 0) * 100) / 100,
-        activeMembers: active,
-        freeMembers: totalDownline - active,
-      },
-    });
+    sendSuccess(res, { data: { tree, direct, indirect, stats: { totalDirect: direct.length, totalIndirect: indirect.length, totalReferrals: totalDownline, totalDownline, active, free: totalDownline - active, totalCommission: Math.round((commissionAgg[0]?.total || 0) * 100) / 100, activeMembers: active, freeMembers: totalDownline - active } } });
   } catch (error) { next(error); }
 };
 

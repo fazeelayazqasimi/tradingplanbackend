@@ -48,7 +48,7 @@ exports.getSignals = async (req, res, next) => {
       sortOptions = { createdAt: 1 };
     }
     const total = await Signal.countDocuments(filter);
-    const signals = await Signal.find(filter).sort(sortOptions).skip((page - 1) * limit).limit(limit).populate('userId', 'firstName lastName avatar');
+    const signals = await Signal.find(filter).sort(sortOptions).skip((page - 1) * limit).limit(limit).populate('userId', 'firstName lastName avatar').select('title symbol action side volume openPrice takeProfits stopLoss currentPrice profit pips status result takeProfit openPrices description imageUrls isPublished');
     sendPaginated(res, signals, total, page, limit);
   } catch (error) {
     next(error);
