@@ -117,7 +117,7 @@ async function getDownlineMembers(userId, startDate, endDate) {
               conversionAmount: '$$d.conversionAmount',
               createdAt: '$$d.createdAt',
               level: '$$d.level',
-              depth: { $add: ['$$d._gdepth', 1] },
+              depth: { $add: ['$$d._gdepth', 2] },
             },
           },
         },
@@ -169,6 +169,7 @@ async function isInDownline(rootId, targetId, maxHops = 50) {
 const mapReferral = (ref, level) => ({
   _id: ref._id,
   user: ref.referredUserId,
+  referrerId: ref.referrerId,
   level,
   status: ref.status,
   commission: ref.commissionAmount,

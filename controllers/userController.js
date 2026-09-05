@@ -274,7 +274,7 @@ exports.getStudentDashboard = async (req, res, next) => {
       safe(Webinar.find({ isFree: true, isPublished: true }).sort({ date: -1 }).limit(5).select('title date publishedAt summary description').lean(), []),
       safe(ZoomSession.find({ category: 'free-zoom', isPublished: true }).sort({ date: -1 }).limit(5).select('title date publishedAt summary description').lean(), []),
       safe(MarketUpdate.find({ isPublished: true }).sort({ createdAt: -1 }).limit(5).select('title createdAt summary description').lean(), []),
-      safe(Announcement.find({ isPublished: true }).sort({ createdAt: -1 }).limit(5).select('title createdAt content').lean(), []),
+      safe(Announcement.find({ isPublished: true }).sort({ createdAt: -1 }).limit(5).select('title createdAt content image video attachments type').lean(), []),
       safe(Course.find({ isFree: true }).sort({ order: -1 }).limit(5).select('title slug thumbnail level category totalLessons').lean(), []),
       safe(CopyTrading.aggregate([
         { $match: { userId } },
