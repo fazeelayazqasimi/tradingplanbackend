@@ -7,6 +7,7 @@ const { sendRankPromotionEmail } = require('./emailService');
 const ActivityLog = require('../models/ActivityLog');
 
 const ACTIVE_REFERRAL_STATUSES = ['converted', 'paid'];
+const ALL_REFERRAL_STATUSES = ['converted', 'paid', 'pending', 'registered'];
 const MAX_TREE_DEPTH = 30;
 
 const getActiveRanks = () => Rank.find({ isActive: true }).sort({ order: 1 }).lean();
@@ -46,12 +47,14 @@ const getRankQualification = async (userId, { requiredRankName = null, qualified
   const legs = await Referral.find({
     referrerId: userId,
     level: 1,
-    status: { $in: ACTIVE_REFERRAL_STATUSES }
-  }).select('_id referredUserId').lean();
+    status: { $in: ALL_REFERRAL_STATUSES }
+  }).select('_id referredUserId status').lean();
 
-  result.directReferrals = legs.length;
+  // Direct referrals count: only converted/paid
+  const activeLegs = legs.filter(l => ACTIVE_REFERRAL_STATUSES.includes(l.status));
+  result.directReferrals = activeLegs.length;
   
-  // activeTeamMembers starts at 0 - will count ALL active downline members in the tree
+  // activeTeamMembers starts at 0 - will count ALL approved downline members in the tree
   result.activeTeamMembers = 0;
 
   const legQualified = new Set();
@@ -70,7 +73,7 @@ const getRankQualification = async (userId, { requiredRankName = null, qualified
       Referral.find({
         referrerId: { $in: ids },
         level: 1,
-        status: { $in: ACTIVE_REFERRAL_STATUSES }
+        status: { $in: ALL_REFERRAL_STATUSES }
       }).select('referrerId referredUserId').lean()
     ]);
 
