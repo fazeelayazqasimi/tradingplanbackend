@@ -54,8 +54,9 @@ const getRankQualification = async (userId, { requiredRankName = null, qualified
   const activeLegs = legs.filter(l => ACTIVE_REFERRAL_STATUSES.includes(l.status));
   result.directReferrals = activeLegs.length;
   
-  // activeTeamMembers starts at 0 - will count ALL approved downline members in the tree
-  result.activeTeamMembers = 0;
+  // Team Size = ALL active members in the entire hierarchy (direct + indirect)
+  // Direct active members (converted/paid) must be counted first
+  result.activeTeamMembers = activeLegs.length;
 
   const legQualified = new Set();
   let frontier = legs.map((leg) => ({
