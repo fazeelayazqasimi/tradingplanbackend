@@ -297,15 +297,20 @@ const checkOpenSignals = async () => {
       let tpIndex = null;
 
       const hasMultiTp = Array.isArray(signal.takeProfits) && signal.takeProfits.length > 0;
+      let multiTpLevel = null;
+
       if (hasMultiTp) {
+        let highestReachedIndex = -1;
         for (let i = 0; i < signal.takeProfits.length; i++) {
           const tp = signal.takeProfits[i];
           if (tp.hit) continue;
           if (isLong ? price >= tp.price : price <= tp.price) {
-            outcome = 'tp';
-            tpIndex = i;
-            break;
+            highestReachedIndex = i;
           }
+        }
+        if (highestReachedIndex >= 0) {
+          outcome = 'tp';
+          multiTpLevel = highestReachedIndex + 1;
         }
       } else if (signal.takeProfit != null && (isLong ? price >= signal.takeProfit : price <= signal.takeProfit)) {
         outcome = 'tp';
@@ -316,10 +321,15 @@ const checkOpenSignals = async () => {
       }
 
       if (outcome) {
-        const result = await resolveSignal(signal._id, outcome, price, { tpIndex });
+        let result;
+        if (outcome === 'tp' && multiTpLevel != null) {
+          result = await markTpHit(signal._id, multiTpLevel, price);
+        } else {
+          result = await resolveSignal(signal._id, outcome, price, { tpIndex });
+        }
         if (result.resolved) {
-          resolved.push({ signalId: signal._id, symbol: signal.symbol, outcome, price, tpIndex });
-          console.log(`[SIGNAL RESULT] ${signal.symbol} ${signal.action} -> ${outcome.toUpperCase()}${tpIndex != null ? ` (TP ${tpIndex + 1})` : ''} hit at ${price}`);
+          resolved.push({ signalId: signal._id, symbol: signal.symbol, outcome, price, tpIndex: result.tpIndex });
+          console.log(`[SIGNAL RESULT] ${signal.symbol} ${signal.action} -> ${outcome.toUpperCase()}${result.tpLabel ? ` (${result.tpLabel})` : ''} hit at ${price}`);
         }
       }
     }
