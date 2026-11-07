@@ -104,6 +104,7 @@ app.use('/api/wallets', require('./routes/wallets'));
 app.use('/api/withdrawals', require('./routes/withdrawals'));
 app.use('/api/subscriptions', require('./routes/subscriptions'));
 app.use('/api/copy-trading', require('./routes/copyTrading'));
+app.use('/api/bot-accounts', require('./routes/botAccounts'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/admin/export', require('./routes/export'));

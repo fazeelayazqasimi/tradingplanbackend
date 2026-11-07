@@ -1,4 +1,5 @@
 const { getDashboard, getRevenueReport, getActivityLogs, getReferrals, getReferralStats, getReferralTree, getReferralById, getWhatsappStats } = require('../controllers/adminController');
+const { getMembersWithBotAccounts } = require('../controllers/botAccountController');
 const { protect, authorize } = require('../middleware/auth');
 const { sendSuccess, sendError } = require('../helpers/response');
 const { bulkDeleteValidator, idValidator } = require('../validators/generalValidators');
@@ -40,6 +41,7 @@ router.get('/referrals/stats', getReferralStats);
 router.get('/referrals/tree', getReferralTree);
 router.get('/referrals/:id', getReferralById);
 router.get('/whatsapp-stats', getWhatsappStats);
+router.get('/bot-accounts', getMembersWithBotAccounts);
 
 router.post('/bulk-delete', async (req, res, next) => {
   try {
