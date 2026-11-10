@@ -58,6 +58,12 @@ const botAccountValidator = [
     .optional({ values: 'falsy' })
     .isIn(['demo', 'real'])
     .withMessage('Account type must be demo or real'),
+  body('strategyId')
+    .trim()
+    .notEmpty()
+    .withMessage('Trading strategy is required')
+    .isMongoId()
+    .withMessage('Invalid strategy'),
   body('password')
     .optional({ values: 'falsy' })
     .trim()

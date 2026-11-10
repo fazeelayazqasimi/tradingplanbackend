@@ -139,9 +139,20 @@ const seed = async () => {
       { key: 'plan_days_yearly', value: 365, category: 'subscription', description: 'Yearly plan duration in days' },
       { key: 'plan_days_lifetime', value: 36500, category: 'subscription', description: 'Lifetime plan duration in days' },
       { key: 'upline_activation_discount', value: 20, category: 'subscription', description: 'Discount percentage for upline when activating a downline package' },
+      { key: 'bot_connect_fee_amount', value: 20, category: 'trading', description: 'Fee charged from main wallet when connecting a real trading bot account (USD)' },
     ];
     await Setting.insertMany(defaultSettings);
     console.log('Settings created:', defaultSettings.length);
+
+    // Create default trading strategies
+    const TradingStrategy = require('../models/TradingStrategy');
+    const strategies = await TradingStrategy.insertMany([
+      { name: 'TITAN EDGE', tag: 'Trend', minAmount: 250, maxAmount: 5000, sortOrder: 1, isActive: true },
+      { name: 'APEX PRIME', tag: 'Balanced', minAmount: 250, maxAmount: 2500, sortOrder: 2, isActive: true },
+      { name: 'PHOENIX ELITE', tag: 'Advanced', minAmount: 250, maxAmount: 25000, sortOrder: 3, isActive: true },
+      { name: 'QUANTUM FLOW', tag: 'Adaptive AI', minAmount: 250, maxAmount: 10000, sortOrder: 4, isActive: true },
+    ]);
+    console.log('Trading strategies created:', strategies.length);
 
     // Create sample courses
     const courses = await Course.insertMany([

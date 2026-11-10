@@ -44,6 +44,22 @@ const botAccountSchema = new mongoose.Schema({
     trim: true,
     maxlength: [200, 'Password cannot exceed 200 characters'],
   },
+  strategyId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'TradingStrategy',
+    default: null,
+  },
+  strategyName: {
+    type: String,
+    trim: true,
+    maxlength: [60, 'Strategy name cannot exceed 60 characters'],
+    default: null,
+  },
+  feeAmount: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
   isActive: {
     type: Boolean,
     default: true,

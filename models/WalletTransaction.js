@@ -34,7 +34,8 @@ const walletTransactionSchema = new mongoose.Schema({
         'refund',
         'adjustment',
         'commission',
-        'deposit'
+        'deposit',
+        'bot_activation'
       ],
       message: '{VALUE} is not a valid transaction category'
     },

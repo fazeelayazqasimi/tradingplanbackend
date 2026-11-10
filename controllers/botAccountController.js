@@ -1,7 +1,20 @@
 const BotAccount = require('../models/BotAccount');
 const User = require('../models/User');
+const TradingStrategy = require('../models/TradingStrategy');
+const Setting = require('../models/Setting');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions } = require('../helpers/pagination');
+const { debitWallet, runInTransaction } = require('../services/walletService');
+
+const FEE_SETTING_KEY = 'bot_connect_fee_amount';
+const DEFAULT_FEE = 20;
+
+const getConnectFee = async () => {
+  const raw = await Setting.getByKey(FEE_SETTING_KEY, DEFAULT_FEE);
+  const amount = Number(raw);
+  return Number.isFinite(amount) && amount >= 0 ? amount : DEFAULT_FEE;
+};
+
 
 const parseSort = (sort) => {
   if (sort && typeof sort === 'object') return sort;
@@ -26,18 +39,69 @@ exports.getMyBotAccounts = async (req, res, next) => {
   }
 };
 
+exports.getConnectFeeInfo = async (req, res, next) => {
+  try {
+    const amount = await getConnectFee();
+    sendSuccess(res, { amount, currency: 'USD', wallet: 'main' }, 'Connect fee fetched');
+  } catch (error) {
+    next(error);
+  }
+};
+
 exports.createBotAccount = async (req, res, next) => {
   try {
-    const { platform, accountNumber, server, brokerName, accountType, password } = req.body;
-    const account = await BotAccount.create({
+    const { platform, accountNumber, server, brokerName, accountType, password, strategyId } = req.body;
+    const type = accountType || 'real';
+
+    const strategy = await TradingStrategy.findById(strategyId);
+    if (!strategy || !strategy.isActive) {
+      return sendError(res, 'Selected trading strategy is not available', 400);
+    }
+
+    let feeAmount = 0;
+    if (type === 'real') {
+      feeAmount = await getConnectFee();
+    }
+
+    const createPayload = () => ({
       userId: req.user._id,
       platform,
       accountNumber,
       server,
       brokerName,
-      accountType: accountType || 'real',
+      accountType: type,
       password,
+      strategyId: strategy._id,
+      strategyName: strategy.name,
+      feeAmount,
     });
+
+    let account;
+    if (feeAmount > 0) {
+      try {
+        account = await runInTransaction(async (session) => {
+          await debitWallet(req.user._id, {
+            amount: feeAmount,
+            category: 'bot_activation',
+            description: `Bot activation - ${strategy.name}`,
+            referenceModel: 'User',
+            referenceId: req.user._id,
+            walletType: 'main',
+            session,
+          });
+          const [created] = await BotAccount.create([createPayload()], { session });
+          return created;
+        });
+      } catch (err) {
+        if (err.code === 'INSUFFICIENT_BALANCE' || /Insufficient balance|Wallet not found|Wallet is frozen/i.test(err.message || '')) {
+          return sendError(res, err.message, 400);
+        }
+        throw err;
+      }
+    } else {
+      account = await BotAccount.create(createPayload());
+    }
+
     sendSuccess(res, account, 'Bot account connected', 201);
   } catch (error) {
     next(error);

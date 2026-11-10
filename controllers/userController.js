@@ -12,6 +12,7 @@ const Deposit = require('../models/Deposit');
 const Withdrawal = require('../models/Withdrawal');
 const CopyTrading = require('../models/CopyTrading');
 const Quiz = require('../models/Quiz');
+const BotAccount = require('../models/BotAccount');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions, buildPaginationMeta } = require('../helpers/pagination');
 const { sendAccountDeactivatedEmail } = require('../services/emailService');
@@ -262,6 +263,7 @@ exports.getStudentDashboard = async (req, res, next) => {
       businessProfiles,
       commissionAgg,
       freeRegAgg,
+      botAccounts,
     ] = await Promise.all([
       safe(UserProgress.find({ userId }).populate({ path: 'courseId', select: 'title slug thumbnail level category totalLessons' }).limit(3).lean(), []),
       safe(Signal.find({ isPublished: true }).sort({ createdAt: -1 }).limit(5).select('title symbol side isPublished createdAt').lean(), []),
@@ -289,6 +291,7 @@ exports.getStudentDashboard = async (req, res, next) => {
         { $match: { userId, category: 'registration' } },
         { $group: { _id: null, total: { $sum: '$amount' } } },
       ]), []),
+      safe(BotAccount.find({ userId }).select('strategyName accountType feeAmount createdAt').lean(), []),
     ]);
 
     const walletList = wallets || [];
@@ -310,6 +313,21 @@ exports.getStudentDashboard = async (req, res, next) => {
       freeRegistrationEarnings: freeRegAgg[0]?.total || 0,
     };
     const cp = copyStats[0] || { totalTrades: 0, wins: 0, totalProfit: 0, openTrades: 0 };
+
+    const botList = Array.isArray(botAccounts) ? botAccounts : [];
+    const strategyCounts = {};
+    for (const acc of botList) {
+      const key = acc.strategyName || 'No Strategy';
+      strategyCounts[key] = (strategyCounts[key] || 0) + 1;
+    }
+    const botStats = {
+      total: botList.length,
+      real: botList.filter((a) => a.accountType === 'real').length,
+      demo: botList.filter((a) => a.accountType === 'demo').length,
+      byStrategy: Object.entries(strategyCounts)
+        .map(([strategyName, count]) => ({ strategyName, count }))
+        .sort((a, b) => b.count - a.count),
+    };
 
     const Rank = require('../models/Rank');
 
@@ -355,6 +373,7 @@ exports.getStudentDashboard = async (req, res, next) => {
       freeCourses,
       copyStats: cp,
       businessProfiles,
+      botStats,
     });
   } catch (error) {
     console.error('[DASHBOARD] handler error:', error.message);
@@ -379,6 +398,7 @@ exports.getStudentDashboard = async (req, res, next) => {
       freeCourses: [],
       copyStats: { totalTrades: 0, wins: 0, totalProfit: 0, openTrades: 0 },
       businessProfiles: [],
+      botStats: { total: 0, real: 0, demo: 0, byStrategy: [] },
     });
   }
 };

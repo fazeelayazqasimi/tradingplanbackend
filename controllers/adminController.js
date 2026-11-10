@@ -8,6 +8,7 @@ const Deposit = require('../models/Deposit');
 const Wallet = require('../models/Wallet');
 const Referral = require('../models/Referral');
 const ActivityLog = require('../models/ActivityLog');
+const BotAccount = require('../models/BotAccount');
 const { sendSuccess, sendError, sendPaginated } = require('../helpers/response');
 const { getPaginationOptions } = require('../helpers/pagination');
 
@@ -31,6 +32,8 @@ exports.getDashboard = async (req, res, next) => {
       recentDeposits,
       recentWithdrawals,
       recentSubscriptions,
+      botTotalsAgg,
+      botByStrategyAgg,
     ] = await Promise.all([
       User.countDocuments({ role: 'student' }),
       User.countDocuments({ role: 'student', isApproved: true }),
@@ -108,12 +111,56 @@ exports.getDashboard = async (req, res, next) => {
       Deposit.find().sort({ createdAt: -1 }).limit(5).populate('userId', 'firstName lastName email').lean(),
       Withdrawal.find().sort({ createdAt: -1 }).limit(5).populate('userId', 'firstName lastName email').lean(),
       Subscription.find().sort({ createdAt: -1 }).limit(5).populate('userId', 'firstName lastName email').lean(),
+      BotAccount.aggregate([
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            real: { $sum: { $cond: [{ $eq: ['$accountType', 'real'] }, 1, 0] } },
+            demo: { $sum: { $cond: [{ $eq: ['$accountType', 'demo'] }, 1, 0] } },
+            revenue: { $sum: '$feeAmount' },
+            students: { $addToSet: '$userId' },
+          },
+        },
+      ]),
+      BotAccount.aggregate([
+        {
+          $group: {
+            _id: '$strategyName',
+            count: { $sum: 1 },
+            real: { $sum: { $cond: [{ $eq: ['$accountType', 'real'] }, 1, 0] } },
+            demo: { $sum: { $cond: [{ $eq: ['$accountType', 'demo'] }, 1, 0] } },
+            revenue: { $sum: '$feeAmount' },
+          },
+        },
+        { $sort: { count: -1, _id: 1 } },
+      ]),
     ]);
 
     const d = depositStats[0] || { total: 0, totalAmount: 0, pending: 0, approved: 0, rejected: 0, failed: 0, pendingAmount: 0, approvedAmount: 0 };
     const w = withdrawalStats[0] || { total: 0, totalAmount: 0, pending: 0, approved: 0, processing: 0, paid: 0, rejected: 0, failed: 0, pendingAmount: 0, paidAmount: 0 };
     const wall = walletStats[0] || { totalBalance: 0, totalPending: 0, totalEarned: 0, totalWithdrawn: 0, walletCount: 0 };
     const ref = referralStats[0] || { totalReferrals: 0, convertedCount: 0, totalCommission: 0 };
+
+    const bt = botTotalsAgg[0] || { total: 0, real: 0, demo: 0, revenue: 0, students: [] };
+    const botStrategyList = (botByStrategyAgg || []).map((s) => ({
+      strategyName: s._id || 'No Strategy',
+      count: s.count,
+      real: s.real,
+      demo: s.demo,
+      revenue: s.revenue,
+    }));
+    const botStats = {
+      total: bt.total,
+      real: bt.real,
+      demo: bt.demo,
+      revenue: bt.revenue,
+      students: (bt.students || []).length,
+      byStrategy: botStrategyList,
+      topStrategy: botStrategyList[0]
+        ? { strategyName: botStrategyList[0].strategyName, count: botStrategyList[0].count }
+        : null,
+    };
 
     const recentActivity = [
       ...recentDeposits.map((d) => ({
@@ -152,6 +199,7 @@ exports.getDashboard = async (req, res, next) => {
       withdrawals: w,
       wallets: wall,
       referrals: ref,
+      botStats,
       recentActivity,
     });
   } catch (error) { next(error); }
